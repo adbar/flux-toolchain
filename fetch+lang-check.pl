@@ -23,7 +23,10 @@ use HTML::Strip;
 use HTML::Clean;
 use Time::HiRes qw( time sleep );
 use Try::Tiny; # on Debian/Ubuntu package libtry-tiny-perl
-use String::CRC32; # on Debian/Ubuntu package libstring-crc32-perl
+use Socket;
+use Digest::MD5 qw(md5_hex);
+# use Time::ParseDate; # libtime-modules-perl
+
 
 # test for Furl, use LWP as a fallback
 my $furl_loaded = 1;
@@ -43,13 +46,16 @@ catch {
 
 # TODO :
 # hash + undef links that are already processed ?
-# pack crc
 # change 'hostnames' name
 # hostreduce -> hostsampling with just 1 url ? or 1,2,3,... option ?
 # make host sampling external
 # program structure
 # write files sub ?
 # redirection check : http/https
+## CC-Inhalt, Dokumentlänge (mit und ohne stripping), Quelle ?
+## filter the links ?
+## URL verlinkt auf [tab] URL (crc32 ?)
+
 
 
 # command-line options
@@ -92,14 +98,19 @@ my $alarm_timeout = 20 + $timeout;
 ## Agent here
 my $agent = "Microblog-Explorer/0.3";
 
+## MD5 digest length
+my $md5length = 12; # enough below ~10 millions of URLs
+
 ## Most global variables here
-my (@urls, %seen, %hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $crc, $furl, $lwp_ua);
+my (@urls, %seen, %hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $digest, $furl, $lwp_ua, $body, $final_red);
 
 ## Files
 ### bound to change by command-line option
 my $todo = 'LINKS-TODO';
 my $done = 'RESULTS-langid'; # may change
 my $tocheck = 'LINKS-TO-CHECK';
+my $urldictfile = 'URL-DICT';
+my $urlcouplesfile = 'URL-COUPLES';
 
 my $errfile = 'ERRORS';
 open (my $errout, ">>", $errfile) or die "Cannot open ERRORS file : $!\n";
@@ -111,12 +122,16 @@ if (defined $fileprefix) {
 	$todo = $fileprefix . "_" . $todo;
 	$done = $fileprefix . "_" . $done; # may change
 	$tocheck = $fileprefix . "_" . $tocheck;
+	$urldictfile = $fileprefix . "_" . $urldictfile;
+	$urlcouplesfile = $fileprefix . "_" . $urlcouplesfile;
 }
 
 if (defined $filesuffix) {
 	$todo = $todo . "." . $filesuffix;
 	$done = $done . "." . $filesuffix; # may change
 	$tocheck = $tocheck . "." . $filesuffix;
+	$urldictfile = $urldictfile . "." . $filesuffix;
+	$urlcouplesfile = $urlcouplesfile . "." . $filesuffix;
 }
 
 # Process the 'seen' file, if there is one
@@ -129,15 +144,14 @@ if ((defined $seen) && (-e $seen)) {
 			#$_ =~ s/^http:\/\///;	# spare memory space
 			$_ =~ s/\/$//;		# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
 			($scheme, $auth, $path, $query, $frag) = uri_split($_);
-			$crc = crc32($auth);
-			$hostnames{$crc}++;
-			# two possibilities according to the 'host-reduce' option : deleted
+			$digest = substr(md5_hex($auth), 0, $md5length);
+			$hostnames{$digest}++;
 		}
 		# if it's just a 'simple' list of urls
 		else {
 			$_ =~ s/\/$//;		# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
-			$crc = crc32($_);
-			$hostnames{$crc}++;
+			$digest = substr(md5_hex($_), 0, $md5length);
+			$hostnames{$digest}++;
 		}
 	}
 	close($ldone);
@@ -186,10 +200,10 @@ if (-e $todo) {
 					push (@urls, $tempurls[$rand]);
 					@tempurls = ();
 				}
-				$crc = crc32($red_uri); # spare memory
-				unless (exists $hostnames{$crc}) {
+				$digest = substr(md5_hex($red_uri), 0, $md5length); # spare memory
+				unless (exists $hostnames{$digest}) {
 					push (@urls, $red_uri);
-					$hostnames{$crc}++;
+					$hostnames{$digest}++;
 					$identifier = $red_uri;
 				}
 				else {
@@ -198,10 +212,10 @@ if (-e $todo) {
 			}
 		}
 		else {
-			$crc = crc32($ext_uri); # spare memory
-			unless (exists $hostnames{$crc}) {
+			$digest = substr(md5_hex($ext_uri), 0, $md5length); # spare memory
+			unless (exists $hostnames{$digest}) {
 				push (@urls, $ext_uri);
-				$hostnames{$crc}++;
+				$hostnames{$digest}++;
 			}
 		}
 	}
@@ -264,6 +278,8 @@ my ($stack, $visits, $i, $suspcount, $skip, $url_count) = (0) x 6;
 
 open (my $out_fh, '>>', $done) or die "Cannot open RESULTS file : $!\n";
 open (my $check_again_fh, '>>', $tocheck) or die "Cannot open TO-CHECK file : $!\n";
+open (my $urldict, '>>', $urldictfile) or die "Cannot open URL-DICT file : $!\n";
+open (my $urlcouples, '>>', $urlcouplesfile) or die "Cannot open URL-COUPLES file : $!\n";
 
 ## this is experimental
 sub process_url {
@@ -342,7 +358,7 @@ sub fetch_url {
   	$res = $lwp_ua->request($req);
 	if ($res->is_success) {
 		# check if the request was redirected to a URL that has already been seen
-		my $final_red = $res->request()->uri();
+		$final_red = $res->request()->uri();
 		($scheme, $auth, $path, $query, $frag) = uri_split($final_red);
 		my $final_short;
 		if ($final_red =~ m/^https:\/\//) {
@@ -351,15 +367,15 @@ sub fetch_url {
 		else {
 			$final_short = $auth;
 		}
-		$crc = crc32($final_short);
-		if (exists $hostnames{$crc}) {
+		$digest = substr(md5_hex($final_short), 0, $md5length);
+		if (exists $hostnames{$digest}) {
 			alarm 0;
 			die "Dropped (redirect already seen):\t" . $finaluri;
 		}
 
 		$visits++;
-		$crc = crc32($final_red);
-		$hostnames{$crc}++;
+		$digest = substr(md5_hex($final_red), 0, $md5length);
+		$hostnames{$digest}++;
 		# check the size of the page (to avoid a memory overflow)
 		my $testheaders = $res->headers;
 		if ($testheaders->content_length) {
@@ -368,7 +384,7 @@ sub fetch_url {
 				die "Dropped (by content-size):\t" . $finaluri;
 			}
 		}
-		my $body = $res->decoded_content(charset => 'none');
+		$body = $res->decoded_content(charset => 'none');
 
 		{ no warnings 'uninitialized';
 			if (length($body) < 1000) { # was 100, could be another value
@@ -490,7 +506,88 @@ sub fetch_url {
 			$suspicious = 1;
 		}
 
-		my $output_result = $finaluri . "\t" . $lang . "\t" . $confidence;
+		# INFOS (section added)
+		# digest
+		my $final_digest = substr(md5_hex($final_red), 0, $md5length);
+		if ($final_red eq $finaluri) {
+			print $urldict $final_red . "\t" . $final_digest . "\tø\n";
+		}
+		else {
+			print $urldict $final_red . "\t" . $final_digest . "\t" . $finaluri . "\n";
+		}
+
+		# HTTP last-modified
+		my $httplast;
+		if ($res->header( 'last-modified' )) {
+			$httplast = $res->header( 'last-modified' );
+		}
+		else {
+			$httplast = "ø";
+		}
+
+		# domain name
+		my $uri = URI->new( $final_red );
+		my $domain = $uri->host;
+		my $domain_short;
+		# try short name
+		if ($domain =~ m/[a-z]+\.[a-z]+\/?$/) {
+			$domain_short = $&;
+		}
+		
+		# IPs
+		my (@addresses, $dnsflag);
+		try {
+			@addresses = gethostbyname($domain_short) or die;
+			@addresses = map { inet_ntoa($_) } @addresses[4 .. $#addresses];
+			$dnsflag = 1;
+		}
+		catch {
+			@addresses = gethostbyname($domain) or print "Can't resolve $domain: $!\n";
+			@addresses = map { inet_ntoa($_) } @addresses[4 .. $#addresses];
+		}
+		my $domainmem;
+		# result of the test : determine which version of the domain name to store
+		if ( ($dnsflag) && ($dnsflag == 1) ) {
+			$domainmem = $domain_short;
+		}
+		else {
+			$domainmem = $domain;
+		}
+
+		# parse the links of the page
+		my (@inlinks, @outlinks);
+		while ( $body =~ m/href="(http:\/\/.+?)"/g ) {
+			my $testurl = $1;
+			$uri = URI->new( $testurl );
+			$domain = $uri->host;
+			if ($domain =~ m/[a-z]+\.[a-z]+\/?$/) {
+				$domain = $&;
+			}
+			# find the outlinks
+			if ($domainmem eq $domain) {
+				push (@inlinks, $testurl);
+			}
+			else {
+				push (@outlinks, $testurl);
+			}
+		}
+		# deduplicate
+		%seen = ();
+		@inlinks = grep { ! $seen{ $_ }++ } @inlinks;
+		%seen = ();
+		@outlinks = grep { ! $seen{ $_ }++ } @outlinks;
+		# hash the links and add them to the dictionary : filter them before ?
+		foreach my $inlink (@outlinks) {
+			print $urldict substr(md5_hex($inlink), 0, 12) . "\t" .  $inlink . "\tø\n";
+		}
+		foreach my $outlink (@outlinks) {
+			my $tempoutdig = substr(md5_hex($outlink), 0, 12);
+			print $urldict $tempoutdig . "\t" .  $outlink . "\tø\n";
+			print $urlcouples $final_digest . "\t" . $tempoutdig . "\n";
+		}
+
+		my $output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast;
+
 		if ($suspicious == 1) {
 			$suspcount++;
 			print $check_again_fh $output_result . "\n";
