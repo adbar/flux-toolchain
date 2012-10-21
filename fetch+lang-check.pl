@@ -52,7 +52,8 @@ catch {
 # program structure
 # write files sub ?
 # redirection check : http/https
-## CC-Inhalt, Dokumentlänge (mit und ohne stripping), Quelle ?
+## CC-Inhalt, Quelle ?
+## DNS queries auf externe Domains ?
 ## filter the links ?
 ## URL verlinkt auf [tab] URL (crc32 ?)
 
@@ -102,7 +103,7 @@ my $agent = "Microblog-Explorer/0.3";
 my $md5length = 12; # enough below ~10 millions of URLs
 
 ## Most global variables here
-my (@urls, %seen, %hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $digest, $furl, $lwp_ua, $body, $final_red);
+my (@urls, %seen, %hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $digest, $furl, $lwp_ua, $body, $final_red, $length_a, $length_b, $wordcount);
 
 ## Files
 ### bound to change by command-line option
@@ -281,7 +282,26 @@ open (my $check_again_fh, '>>', $tocheck) or die "Cannot open TO-CHECK file : $!
 open (my $urldict, '>>', $urldictfile) or die "Cannot open URL-DICT file : $!\n";
 open (my $urlcouples, '>>', $urlcouplesfile) or die "Cannot open URL-COUPLES file : $!\n";
 
-## this is experimental
+
+# main instructions
+foreach my $url (@urls) {
+	# end the loop if the given number of urls was reached
+	if (defined $links_count) {
+		last if ($stack == $links_count);
+	}
+	# end the loop if there is no server available
+	last if ($skip == 1);
+
+	# try to fetch and to send the page
+	$url_count++;
+	process_url($url);
+	## undef ?
+}
+
+
+# SUBROUTINES
+
+# URL processing subroutine
 sub process_url {
 	my $sub_url = shift;
 	lock_and_write($log, $sub_url, $logfile);
@@ -302,22 +322,6 @@ sub process_url {
 	return;
 }
 
-foreach my $url (@urls) {
-	# end the loop if the given number of urls was reached
-	if (defined $links_count) {
-		last if ($stack == $links_count);
-	}
-	# end the loop if there is no server available
-	last if ($skip == 1);
-
-	# try to fetch and to send the page
-	$url_count++;
-	process_url($url);
-	## undef ?
-}
-
-
-# SUBROUTINES
 
 # Necessary if there are several threads
 sub lock_and_write {
@@ -333,6 +337,8 @@ sub lock_and_write {
 	return;
 }
 
+
+# fetch and send URL
 sub fetch_url {
 	my $finaluri = shift;
 	$stack++;
@@ -385,9 +391,10 @@ sub fetch_url {
 			}
 		}
 		$body = $res->decoded_content(charset => 'none');
+		$length_a = length($body);
 
 		{ no warnings 'uninitialized';
-			if (length($body) < 1000) { # was 100, could be another value
+			if ($length_a < 1000) { # was 100, could be another value
 				alarm 0;
 				die "Dropped (by body size):\t\t" . $finaluri;
 			}
@@ -399,7 +406,8 @@ sub fetch_url {
 			$clean_text = $hs->parse( $$data );
 			$hs->eof;
 
-			if (length($clean_text) < 500) { # was 100, could also be another value
+			$length_b = length($clean_text);
+			if ($length_b < 500) { # was 100, could also be another value
 				alarm 0;
 				die "Dropped (by clean size):\t" . $finaluri;
 			}
@@ -510,10 +518,10 @@ sub fetch_url {
 		# digest
 		my $final_digest = substr(md5_hex($final_red), 0, $md5length);
 		if ($final_red eq $finaluri) {
-			print $urldict $final_red . "\t" . $final_digest . "\tø\n";
+			print $urldict $final_digest . "\t" . $final_red . "\tø\n";
 		}
 		else {
-			print $urldict $final_red . "\t" . $final_digest . "\t" . $finaluri . "\n";
+			print $urldict $final_digest . "\t" . $final_red . "\t" . $finaluri . "\n";
 		}
 
 		# HTTP last-modified
@@ -558,17 +566,21 @@ sub fetch_url {
 		my (@inlinks, @outlinks);
 		while ( $body =~ m/href="(http:\/\/.+?)"/g ) {
 			my $testurl = $1;
-			$uri = URI->new( $testurl );
-			$domain = $uri->host;
-			if ($domain =~ m/[a-z]+\.[a-z]+\/?$/) {
-				$domain = $&;
-			}
-			# find the outlinks
-			if ($domainmem eq $domain) {
-				push (@inlinks, $testurl);
-			}
-			else {
-				push (@outlinks, $testurl);
+			# basic media filter
+			if ($testurl !~ m/\.jpg$|\.jpeg$|\.png$|\.gif$|\.pdf$|\.ogg$|\.mp3$|\.avi$|\.mp4$|\.css$/) {
+				# find the outlinks
+				$uri = URI->new( $testurl );
+				$domain = $uri->host;
+				if ($domain =~ m/[a-z]+\.[a-z]+\/?$/) {
+					$domain = $&;
+				}
+				# store the links in two categories
+				if ($domainmem eq $domain) {
+					push (@inlinks, $testurl);
+				}
+				else {
+					push (@outlinks, $testurl);
+				}
 			}
 		}
 		# deduplicate
@@ -586,7 +598,12 @@ sub fetch_url {
 			print $urlcouples $final_digest . "\t" . $tempoutdig . "\n";
 		}
 
-		my $output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast;
+		# number of words (approximation)
+		## use feature 'unicode_strings'; not before Perl 5.12
+		## unicode flag, does not work before Perl 5.14
+		my $nwords = () = $clean_text =~ /\w+ /giu;
+
+		my $output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast;
 
 		if ($suspicious == 1) {
 			$suspcount++;

@@ -9,12 +9,11 @@
 
 ## example of use:
 ## (python langid.py -s --host=localhost -l en,cs,de,sk,fr,pl,it,es,ja,nl,ru,he,hu,sl,hr,pt,sv,fi,et,no,lt,da,ro,bs,tr,ar,ka,ca,el,uk,is,bg,lv,vi,sw,sr,eo,nb,ga,eu &> lang-id.log &)
-## (bash parallel_threads.sh list-of-links 50000 6 &> logfile.log &)
-
-#(python langid.py -s --host=localhost --port=9009 -l en,cs,de,sk,fr,pl,it,es,ja,nl,ru,he,hu,sl,hr,pt,sv,fi,et,no,lt,da,ro,bs,tr,ar,ka,ca,el,uk,is,bg,lv,vi,sw,sr,eo,nb,ga,eu &> lang-id.log &)
+## (bash langcheck_threads.sh list-of-links 50000 6 &> logfile.log &)
 
 
-#####	RESOLVE THE SHORT URLS BEFORE EXECUTING THIS SCRIPT !!!
+
+#####	RESOLVE THE SHORT URLS BEFORE EXECUTING THIS SCRIPT !
 
 # TODO:
 ## check URLs to check... and store them in 'RESULTS'
@@ -64,7 +63,7 @@ then
 	echo "File clean_urls.py not found"
 	exit 0
 fi
-python clean_urls.py -i $listfile -o cleaned-url-list
+python clean_urls.py -i $listfile -o cleaned-url-list -l spam-domain-blacklist -s SPAM2
 listfile="cleaned-url-list"
 #mv $TMP1 $listfile
 
@@ -117,14 +116,24 @@ rm LINKS-TODO.*
 cat LINKS-TO-CHECK.* >> TO-CHECK
 rm LINKS-TO-CHECK.*
 
+cat URL-DICT.* >> URL-DICT
+rm URL-DICT.*
+cat URL-COUPLES.* >> URL-COUPLES
+rm URL-COUPLES.*
+
 
 # Make sure all lines are unique
 
 sort RESULTS | uniq > $TMP1
 mv $TMP1 RESULTS
-
 sort TO-CHECK | uniq > $TMP1
 mv $TMP1 TO-CHECK
+
+sort URL-DICT | uniq > $TMP1
+mv $TMP1 URL-DICT
+sort URL-COUPLES | uniq > $TMP1
+mv $TMP1 URL-COUPLES
+
 
 # problem !!!
 #if (( $listfile == "TEMP1" ))
@@ -146,5 +155,5 @@ mv $TMP1 TODO
 
 
 # Backup the final result
-tar -cjf backup.tar.bz2 RESULTS TO-CHECK TODO
+tar -cjf backup.tar.bz2 RESULTS TO-CHECK TODO URL-DICT URL-COUPLES
 
