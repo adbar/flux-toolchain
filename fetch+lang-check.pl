@@ -544,17 +544,23 @@ sub fetch_url {
 		
 		# IPs
 		my (@addresses, $dnsflag);
-		try {
-			@addresses = gethostbyname($domain_short) or die;
-			@addresses = map { inet_ntoa($_) } @addresses[4 .. $#addresses];
-			$dnsflag = 1;
+		if ($domain_short) {
+			try {
+				@addresses = gethostbyname($domain_short) or die;
+				@addresses = map { inet_ntoa($_) } @addresses[4 .. $#addresses];
+				$dnsflag = 1;
+			}
+			catch {
+				@addresses = gethostbyname($domain) or print "Can't resolve $domain: $!\n";
+				@addresses = map { inet_ntoa($_) } @addresses[4 .. $#addresses];
+			}
 		}
-		catch {
+		else {
 			@addresses = gethostbyname($domain) or print "Can't resolve $domain: $!\n";
 			@addresses = map { inet_ntoa($_) } @addresses[4 .. $#addresses];
 		}
-		my $domainmem;
 		# result of the test : determine which version of the domain name to store
+		my $domainmem;
 		if ( ($dnsflag) && ($dnsflag == 1) ) {
 			$domainmem = $domain_short;
 		}
@@ -600,8 +606,8 @@ sub fetch_url {
 
 		# number of words (approximation)
 		## use feature 'unicode_strings'; not before Perl 5.12
-		## unicode flag, does not work before Perl 5.14
-		my $nwords = () = $clean_text =~ /\w+ /giu;
+		## unicode flag, does not work before Perl 5.14 : my $nwords = () = $clean_text =~ /\w+ /giu;
+		my $nwords = () = $clean_text =~ /\p{L}+ |\p{L}+\p{P}|\p{L}+$/gi;
 
 		my $output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast;
 

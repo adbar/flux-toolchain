@@ -22,6 +22,7 @@ parser.add_option('-l', '--language-codes', action="store_true", dest="lcodes", 
 parser.add_option("-i", "--input-file", dest="inputfile", help="input file name", metavar="FILE")
 parser.add_option("-o", "--output-file", dest="outputfile", help="output file name (default : output to STDOUT)", metavar="FILE")
 parser.add_option("-w", "--wiki-friendly", action="store_true", dest="wikifriendly", default=False, help="wiki-friendly output (table format)")
+parser.add_option("-d", "--dictionary", dest="dictionary", help="name of the dictionary file",  metavar="FILE")
 
 options, args = parser.parse_args()
 
@@ -57,18 +58,13 @@ except IOError:
 ## Parse input file
 for line in infh:
 	columns = line.split('\t')
-	## two possibilities due to the 'hr' option of the Perl script in the same directory
-	if len(columns) == 3 or len(columns) == 4:
-		if len(columns) == 3:
-			marker = 1
-		if len(columns) == 4:
-			marker = 2
-		if columns[0] not in urld:
-			langd[columns[marker]] += 1
-			urld[columns[0]] = columns[marker]
-			if options.lcodes is True:
-				marker += 1
-				intd[columns[0]] = columns[marker].rstrip()
+	## expects the language codes to be in the second column and URL-id to be in the first one
+	if columns[0] not in urld:
+		langd[columns[1]] += 1
+		urld[columns[0]] = columns[1]
+		if options.lcodes is True:
+			#marker += 1
+			intd[columns[0]] = columns[2].rstrip()
 infh.close()
 
 
@@ -97,11 +93,26 @@ for l in sorted(langd, key=langd.get, reverse=True):
 
 # Print the selected results in a file (-l option) and eventually save them (-o option)
 if options.lcodes is True:
+	# open output file
 	if options.outputfile is not None:
 		try:
 			out = open(options.outputfile, 'w')
 		except IOError:
 			sys.exit("could not open output file")
+
+	# load url hashes dictionary
+	if options.dictionary is not None:
+		try:
+			dictfh = open(options.dictionary, 'r')
+		except IOError:
+			sys.exit("could not open dictionary file")
+		hashd = dict()
+		for line in dictfh:
+			columns = line.split('\t')
+			hashd[columns[0]] = columns[1]
+		dictfh.close()
+
+	# iterate
 	for lang in langlist:
 		for key in urld:
 			if urld[key] == lang:
@@ -109,9 +120,14 @@ if options.lcodes is True:
 					code = codes[urld[key]]
 				else:
 					code = urld[key]
-				if options.outputfile is not None:
-					out.write(key + '\t' + code + '\t' + urld[key] + '\t' + intd[key] + "\n")
+				if options.dictionary is not None:
+					firstinfo = hashd[key]
 				else:
-					print (key, code, urld[key], intd[key], sep='\t')
+					firstinfo = key
+				if options.outputfile is not None:
+						out.write(firstinfo + '\t' + code + '\t' + urld[key] + '\t' + intd[key] + '\n')
+				else:
+					print (firstinfo, code, urld[key], intd[key], sep='\t')
+
 	if options.outputfile is not None:	
 		out.close()
