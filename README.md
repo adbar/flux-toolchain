@@ -1,7 +1,8 @@
-Language identification
------------------------
+Filtering and Language-identification for URL Crawling Seeds (FLUCS) a.k.a. FLUX-Toolchain
+------------------------------------------------------------------------------------------
 
-There are two scripts in the directory named 'langid' which are to be used with the [langid.py language identification system](https://github.com/saffsd/langid.py).
+
+The language-identification scripts are to be used with the [langid.py language identification system](https://github.com/saffsd/langid.py).
 
 
 ### [langid.py](https://github.com/saffsd/langid.py) server
