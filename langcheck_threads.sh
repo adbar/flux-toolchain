@@ -17,7 +17,6 @@
 
 # TODO:
 ## check URLs to check... and store them in 'RESULTS'
-## store the results of clean_urls.py in a different file
 ## advanced divide and conquer and/or URL pool
 ## more than 10 threads
 ### pool file = one half of the links, if n > 100, take the tenth of the list, export thread number
@@ -57,27 +56,45 @@ TMP2=$(tempfile)
 trap 'rm -f $TMP1 $TMP2' EXIT
 
 
+# Sort and uniq
+echo -e "Total lines in input file : "$(wc -l ${listfile} | cut -d " " -f1)
+
+sort $listfile | uniq > $TMP1
+
+echo -e "Total lines after uniq : "$(wc -l ${TMP1} | cut -d " " -f1)
+
+
 # Remove the unsafe/unwanted urls
 if [ ! -f clean_urls.py ];
 then
 	echo "File clean_urls.py not found"
 	exit 0
 fi
-python clean_urls.py -i $listfile -o cleaned-url-list -l spam-domain-blacklist -s SPAM2
+if [ ! -f spam-domain-blacklist ];
+then
+	echo "Spam domains list not found"
+	exit 0
+fi
+python clean_urls.py -i $TMP1 -o cleaned-url-list -l spam-domain-blacklist -s SPAM2
 listfile="cleaned-url-list"
 #mv $TMP1 $listfile
 
 
 # Find a mean number of lines per file
-total_lines=$(cat ${listfile} | wc -l)
+total_lines=$(wc -l ${listfile} | cut -d " " -f1)
 
-if (($req < $total_lines))
+if (($req == 0))
 then
-	head -${req} ${listfile} > $TMP2
-	listfile=$TMP2
-	((lines_per_file = (req + num_files - 1) / num_files))
-else
 	((lines_per_file = (total_lines + num_files - 1) / num_files))
+else
+	if (($req < $total_lines))
+	then
+		head -${req} ${listfile} > $TMP2
+		listfile=$TMP2
+		((lines_per_file = (req + num_files - 1) / num_files))
+	else
+		((lines_per_file = (total_lines + num_files - 1) / num_files))
+	fi
 fi
 
 
@@ -86,8 +103,8 @@ fi
 split -a 1 -d --lines=${lines_per_file} ${listfile} LINKS-TODO.
 
 # Debug information
-echo -e "Total lines\t= ${total_lines}"
-echo -e "Lines per file\t= ${lines_per_file}"
+echo -e "Total lines : ${total_lines}"
+echo -e "Lines per file : ${lines_per_file}"
 
 i=0
 for f in LINKS-TODO.*

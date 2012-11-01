@@ -58,13 +58,16 @@ except IOError:
 ## Parse input file
 for line in infh:
 	columns = line.split('\t')
-	## expects the language codes to be in the second column and URL-id to be in the first one
-	if columns[0] not in urld:
-		langd[columns[1]] += 1
-		urld[columns[0]] = columns[1]
-		if options.lcodes is True:
-			#marker += 1
-			intd[columns[0]] = columns[2].rstrip()
+	if len(columns) > 3:
+		## expects the language codes to be in the second column and URL-id to be in the first one
+		if columns[0] not in urld:
+			langd[columns[1]] += 1
+			urld[columns[0]] = columns[1]
+			
+			if options.lcodes is True:
+				#marker += 1
+				intd[columns[0]] = columns[2].rstrip()
+
 infh.close()
 
 
