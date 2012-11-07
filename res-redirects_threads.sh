@@ -29,9 +29,9 @@ then
 	exit 1
 fi
 
-if (($3 > 10))
+if (($3 > 50))
 then
-	echo "No more than 10 threads please."
+	echo "No more than 50 threads please."
 	exit 1
 fi
 
@@ -88,7 +88,7 @@ fi
 
 # Split the actual file, maintaining lines
 ## splitting trick found here : http://stackoverflow.com/questions/7764755/unix-how-do-a-split-a-file-into-equal-parts-withour-breaking-the-lines
-split -a 1 -d --lines=${lines_per_file} ${listfile} LINKS-TODO.
+split -a 2 -d --lines=${lines_per_file} ${listfile} LINKS-TODO.
 
 # Debug information
 echo -e "Total lines : ${total_lines}"
@@ -97,7 +97,18 @@ echo -e "Lines per file : ${lines_per_file}"
 i=0
 for f in LINKS-TODO.*
 do
-	perl resolve-redirects.pl -t 10 --all --filesuffix $i $f &
+	### starting the threads
+
+	# prepend "0" to match split results
+	if (($i < 10))
+	then
+		j="0"$i
+	else
+		j=$i
+	fi
+
+	perl resolve-redirects.pl -t 10 --all --filesuffix $j $f &
+
 	sleep 2
 	((i++))
 done

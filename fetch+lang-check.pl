@@ -137,16 +137,16 @@ if (defined $filesuffix) {
 
 # Process the 'seen' file, if there is one
 if ((defined $seen) && (-e $seen)) {
-	open (my $ldone, '<', $seen) or die "Cannot open LINKS-DONE file : $!\n";;
+	open (my $ldone, '<', $seen) or die "Cannot open 'seen' file : $!\n";;
 	while (<$ldone>) {
 		chomp;
 		if ($_ =~ m/\t/) {
 			my @temp = split ("\t", $_);
 			#$_ =~ s/^http:\/\///;	# spare memory space
-			$_ =~ s/\/$//;		# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
-			($scheme, $auth, $path, $query, $frag) = uri_split($_);
-			$digest = substr(md5_hex($auth), 0, $md5length);
-			$hostnames{$digest}++;
+			#$_ =~ s/\/$//;		# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
+			#($scheme, $auth, $path, $query, $frag) = uri_split($_);
+			#$digest = substr(md5_hex($auth), 0, $md5length);
+			$hostnames{$temp[0]}++;
 		}
 		# if it's just a 'simple' list of urls
 		else {

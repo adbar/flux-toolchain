@@ -56,7 +56,7 @@ $ua->timeout($timeout);
 
 
 ### redirection list, may not be exhaustive
-my @redirection = ('t.co', 'j.mp', 'is.gd', 'wp.me', 'bit.ly', 'goo.gl', 'xrl.us', 'ur1.ca', 'b1t.it', 'dlvr.it', 'ping.fm', 'post.ly', 'p.ost.im', 'on.fb.me', 'tinyurl.com', 'friendfeed.com');
+my @redirection = ('t.co', 'j.mp', 'is.gd', 'wp.me', 'bit.ly', 'goo.gl', 'xrl.us', 'ur1.ca', 'b1t.it', 'dlvr.it', 'ping.fm', 'post.ly', 'p.ost.im', 'on.fb.me', 'tinyurl.com', 'friendfeed.com', 'ff.im', 'ow.ly', 'su.pr', 'shar.es');
 my ($redir_count, $positive, $negative, $skipped) = (0) x 4;
 
 

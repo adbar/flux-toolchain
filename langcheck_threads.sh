@@ -20,13 +20,6 @@
 ## advanced divide and conquer and/or URL pool
 ## more than 10 threads
 ### pool file = one half of the links, if n > 100, take the tenth of the list, export thread number
-## test langid-server port
-### if nc -vz localhost 9008 &> /dev/null
-### then
-### echo 'Port is open'
-### else
-### echo 'Port is closed'
-### fi
 
 
 if (($# < 3)) || (($# > 4))
@@ -35,9 +28,9 @@ then
 	exit 1
 fi
 
-if (($3 > 10))
+if (($3 > 30))
 then
-	echo "No more than 10 threads please."
+	echo "No more than 30 threads please."
 	exit 1
 fi
 
@@ -100,26 +93,53 @@ fi
 
 # Split the actual file, maintaining lines
 ## splitting trick found here : http://stackoverflow.com/questions/7764755/unix-how-do-a-split-a-file-into-equal-parts-withour-breaking-the-lines
-split -a 1 -d --lines=${lines_per_file} ${listfile} LINKS-TODO.
+split -a 2 -d --lines=${lines_per_file} ${listfile} LINKS-TODO.
 
 # Debug information
 echo -e "Total lines : ${total_lines}"
 echo -e "Lines per file : ${lines_per_file}"
 
+
+## starting the threads
 i=0
 for f in LINKS-TODO.*
 do
-	### starting the threads
+
+	# port check
+	port="9008"
+	if (($i % 2 == 0))
+	then
+		if nc -vz localhost 9009 &> /dev/null
+		then
+			port="9009"
+		fi
+	fi
+	if (($i % 3 == 0))
+	then
+		if nc -vz localhost 9010 &> /dev/null
+		then
+			port="9010"
+		fi
+	fi
+
+	# prepend "0" to match split results
+	if (($i < 10))
+	then
+		j="0"$i
+	else
+		j=$i
+	fi
+
+	# launch the script
 	if (($# == 4))
 	then
-		perl fetch+lang-check.pl -t 15 --seen $4 --hostreduce --all --filesuffix $i $f &
-		#perl fetch-send-furl.pl --port 9009 --seen $4 --hostreduce --all --filesuffix $i $f &
+		perl fetch+lang-check.pl -t 12 --port $port --seen $4 --hostreduce --all --filesuffix $j $f &
 	else
-		perl fetch+lang-check.pl -t 15 --hostreduce --all --filesuffix $i $f &
-		#perl fetch-send-furl.pl --port 9009 --hostreduce --all --filesuffix $i $f &
+		perl fetch+lang-check.pl -t 12 --port $port --hostreduce --all --filesuffix $j $f &
 	fi
 	sleep 2
 	((i++))
+
 done
 
 wait

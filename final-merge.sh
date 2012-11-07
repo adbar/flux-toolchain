@@ -44,7 +44,7 @@ echo -e "Dictionary size after uniq :\t"$(wc -l global-dictionary | cut -d " " -
 
 
 # display statistics if there is a corresponding file
-if [ ! -f lang-stats+selection.py ]
+if [ -f lang-stats+selection.py ]
 then
 	python lang-stats+selection.py -i global-results | head -12
 fi
