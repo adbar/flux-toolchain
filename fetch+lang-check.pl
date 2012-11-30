@@ -46,7 +46,6 @@ catch {
 
 # TODO :
 # hash + undef links that are already processed ?
-# change 'hostnames' name
 # hostreduce -> hostsampling with just 1 url ? or 1,2,3,... option ?
 # make host sampling external
 # program structure
@@ -60,24 +59,25 @@ catch {
 
 
 # command-line options
-my ($help, $seen, $hostreduce, $fileprefix, $filesuffix, $links_count, $put_ip, $port, $timeout, $all_links);
+my ($help, $seen, $hostreduce, $fileprefix, $filesuffix, $links_count, $put_ip, $port, $timeout, $all_links, $raw_size_limit, $clean_size_limit);
 usage() if ( @ARGV < 1
-	or ! GetOptions ('help|h' => \$help, 'putip|ip=s' => \$put_ip, 'port|p=i' => \$port, 'timeout|t=i' => \$timeout, 'seen|s=s' => \$seen, 'fileprefix|fp=s' => \$fileprefix, 'filesuffix|fs=s' => \$filesuffix, 'hostreduce|hr' => \$hostreduce, 'all|a' => \$all_links, 'links|l=i' => \$links_count)
+	or ! GetOptions ('help|h' => \$help, 'putip|ip=s' => \$put_ip, 'port|p=i' => \$port, 'timeout|t=i' => \$timeout, 'seen|s=s' => \$seen, 'fileprefix|fp=s' => \$fileprefix, 'filesuffix|fs=s' => \$filesuffix, 'hostreduce|hr' => \$hostreduce, 'all|a' => \$all_links, 'links|l=i' => \$links_count, 'rsl=i' => \$raw_size_limit, 'csl=i' => \$clean_size_limit)
 	or defined $help
 	or (defined $all_links && defined $links_count)
 );
 
 sub usage {
 	print "Unknown option: @_\n" if ( @_ );
-	print "Usage: perl XX.pl [--help|-h] [--putip|-ip] X.X.X.X [--port|-p] [--timeout|-t] [--seen|-s] [--fileprefix|-fp] prefix [--filesuffix|-fs] suffix [--all|-a] [--links|-l] number [--hostreduce|-hr] \n\n";
-	print "putip : ip of the langid server (default : 127.0.0.1)\n";
-	print "port : port of the langid server (default : 9008)\n";
+	print "Usage: perl XX.pl [--help|-h] [--putip|-ip] X.X.X.X [--port|-p] [--timeout|-t] [--seen|-s] [--fileprefix|-fp] prefix [--filesuffix|-fs] suffix [--all|-a] [--links|-l] number [--hostreduce|-hr] [--rsl] number [--csl] number\n\n";
+	print "putip : ip of the langid server (default: 127.0.0.1)\n";
+	print "port : port of the langid server (default: 9008)\n";
 	print "timeout : timeout limit for the requests (default: 10)\n";
-	print "seen : file containing the urls to skip\n";
+	print "seen : file containing already seen hostnames\n";
 	print "prefix : used to identify the files corresponding to different threads\n";
 	print "suffix : all the same\n";
 	print "EITHER --all OR a given number of links\n";
-	print "hostreduce : keep only the hostname & evt. a random full URL for each hostname\n\n";
+	print "hostreduce : keep only the hostname & evt. a random full URL for each hostname\n";
+	print "raw and clean size limits : text length before and after HTML stripping (default: 1000 and 500)\n\n";
 	exit;
 }
 
@@ -93,23 +93,31 @@ if (!defined $port) {
 if (!defined $timeout) {
 	$timeout = 10;
 }
+if (!defined $raw_size_limit) {
+	$raw_size_limit = 1000;
+}
+if (!defined $clean_size_limit) {
+	$clean_size_limit = 500;
+}
 ## set alarm accordingly
 my $alarm_timeout = 20 + $timeout;
 
 ## Agent here
-my $agent = "Microblog-Explorer/0.3";
+my $agent = "FLUX-Toolchain/0.4";
 
 ## MD5 digest length
 my $md5length = 12; # enough below ~10 millions of URLs
 
 ## Most global variables here
-my (@urls, %seen, %hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $digest, $furl, $lwp_ua, $body, $final_red, $length_a, $length_b, $wordcount);
+my (@urls, %seen, %hostnames, %seen_hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $furl, $lwp_ua, $body, $final_red, $length_a, $length_b, $wordcount);
+my ($ext_uri, $red_uri, $digest, $last_url, $last_red_uri, $last_digest);
 
 ## Files
 ### bound to change by command-line option
 my $todo = 'LINKS-TODO';
 my $done = 'RESULTS-langid'; # may change
 my $tocheck = 'LINKS-TO-CHECK';
+my $urlseenfile = 'URL-SEEN';
 my $urldictfile = 'URL-DICT';
 my $urlcouplesfile = 'URL-COUPLES';
 
@@ -136,23 +144,25 @@ if (defined $filesuffix) {
 }
 
 # Process the 'seen' file, if there is one
+# may be a db some day
 if ((defined $seen) && (-e $seen)) {
-	open (my $ldone, '<', $seen) or die "Cannot open 'seen' file : $!\n";;
+	open (my $ldone, '<', $seen) or die "Cannot open 'seen hostnames' file : $!\n";
 	while (<$ldone>) {
 		chomp;
+		# expected : first column hash, second one whole url without protocol, rest whatever
 		if ($_ =~ m/\t/) {
 			my @temp = split ("\t", $_);
-			#$_ =~ s/^http:\/\///;	# spare memory space
-			#$_ =~ s/\/$//;		# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
-			#($scheme, $auth, $path, $query, $frag) = uri_split($_);
-			#$digest = substr(md5_hex($auth), 0, $md5length);
-			$hostnames{$temp[0]}++;
+			$seen_hostnames{$temp[0]}++;	# = $temp[1];
 		}
 		# if it's just a 'simple' list of urls
+		## add url parser support
 		else {
-			$_ =~ s/\/$//;		# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
+			$_ =~ s/\/$//;			# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
+			$_ =~ s/^http:\/\///;		# remove protocol
+			$_ =~ s/^https:\/\///;		# remove protocol
+			$_ =~  s/^www[0-9]?\.//;	# remove www
 			$digest = substr(md5_hex($_), 0, $md5length);
-			$hostnames{$digest}++;
+			$seen_hostnames{$digest} = $_;
 		}
 	}
 	close($ldone);
@@ -161,74 +171,118 @@ if ((defined $seen) && (-e $seen)) {
 # Process the 'todo' file (required)
 if (-e $todo) {
 	open (my $ltodo, '<', $todo) or die "Cannot open LINKS-TODO file : $!\n";;
-	my ($identifier, @tempurls);
+	my ($last_red_uri, @tempurls);
 	while (<$ltodo>) {
 		chomp;
 		unless ($_ =~ m/^http/) {
-		$_ = "http://" . $_; # consequence of sparing memory space in the "todo" files
+		$_ = "http://" . $_;	# consequence of sparing memory space in the "todo" files
 		}
 
 		# url splitting
 		## REDIRECT PART DELETED, EXECUTE SPECIALLY DESIGNED SCRIPT BEFORE THIS ONE
 		($scheme, $auth, $path, $query, $frag) = uri_split($_);
-		next if (($auth !~ m/\./) || ($scheme =~ m/^ftp/));
-		my $red_uri;
-		if ($_ =~ m/^https:\/\//) {
-			$red_uri = uri_join($scheme, $auth);
-		}
-		else {
-			$red_uri = $auth;
-		}
-		# without query ? necessary elements might be lacking
-		my $ext_uri = uri_join($scheme, $auth, $path);
-		# spare memory space
-		$red_uri =~ s/^http:\/\///;
-		$ext_uri =~ s/^http:\/\///;
+		next if ($auth !~ m/\./);	# || ($scheme =~ m/^ftp/) : the scheme should be already checked
+		$red_uri = $auth;
+		$red_uri =~ s/^www[0-9]?\.//;
 		
-		# find out if the url has already been stored
-		## do this before in a separate script ?
+		# no https support wanted
+		#if ($_ =~ m/^https:\/\//) {
+		#	$red_uri = uri_join($scheme, $auth);
+		#}
+
+		# without query ? necessary elements might be lacking
+		$ext_uri = uri_join($scheme, $auth, $path);
+		# spare memory space : not necessary
+		#$red_uri =~ s/^http:\/\///;
+		#$ext_uri =~ s/^http:\/\///;
+		
+		## find out if the url has already been stored (do this before in a separate script ?)
+		# second part : if the hostname differs just by one last character (??)
 		if ( (defined $hostreduce) || (length($ext_uri) == length($auth)+1) ) {
 			## sampling : reduction from many urls with the same hostname to hostname & sample (random) url
-			if ((defined $identifier) && ($red_uri eq $identifier)) {
-				push (@tempurls, $ext_uri);
-			}
-			else {
-				## add a random url including the path (to get a better glimpse of the website)
-				if (@tempurls) {
-					%seen = ();
-					@tempurls = grep { ! $seen{ $_ }++ } @tempurls;
-					my $rand = int(rand(scalar(@tempurls)));
-					push (@urls, $tempurls[$rand]);
-					@tempurls = ();
-				}
-				$digest = substr(md5_hex($red_uri), 0, $md5length); # spare memory
-				unless (exists $hostnames{$digest}) {
-					push (@urls, $red_uri);
-					$hostnames{$digest}++;
-					$identifier = $red_uri;
+			# digest used for existence tests to spare memory
+			$digest = substr(md5_hex($red_uri), 0, $md5length);
+			next if (exists $seen_hostnames{$digest});
+
+			# just for the first URL of the list
+			if (defined $last_red_uri) {
+				# if the 'hostname' is equal to the last one
+				if ($red_uri eq $last_red_uri) {
+					push (@tempurls, $ext_uri);
 				}
 				else {
-					$identifier = ();
+					## add a random url including the path (to get a better glimpse of the website)
+					if (@tempurls) {
+						%seen = ();
+						@tempurls = grep { ! $seen{ $_ }++ } @tempurls;
+						my $rand = int(rand(scalar(@tempurls)));
+						my $chosen_url = $tempurls[$rand];
+						push (@urls, $chosen_url);
+						$hostnames{$last_digest} = $last_red_uri;
+							# may not be necessary : the reduced url is the filter
+							# my $chosen_digest = substr(md5_hex($chosen_url), 0, $md5length)
+							# $hostnames{$chosen_digest}++;
+						@tempurls = ();
+					}
+					else {
+						push (@urls, $last_url);
+						$hostnames{$last_digest} = $last_red_uri;
+					}
 				}
 			}
+
+			$last_url = $ext_uri;
+			$last_red_uri = $red_uri;
+			$last_digest = $digest;
 		}
 		else {
-			$digest = substr(md5_hex($ext_uri), 0, $md5length); # spare memory
-			unless (exists $hostnames{$digest}) {
+			# whole URL digest, spare memory
+			$digest = substr(md5_hex($ext_uri), 0, $md5length);
+			unless (exists $seen_hostnames{$digest}) {
 				push (@urls, $ext_uri);
 				$hostnames{$digest}++;
 			}
 		}
 	}
-	# ? last one ?
+
+	# last URL
+	if (defined $hostreduce) {
+		$digest = substr(md5_hex($red_uri), 0, $md5length);
+		if (defined $last_red_uri) {
+			# if the 'hostname' is equal to the last one
+			if ($red_uri eq $last_red_uri) {
+				unless (exists $seen_hostnames{$digest}) {
+					push (@tempurls, $ext_uri);
+					%seen = ();
+					@tempurls = grep { ! $seen{ $_ }++ } @tempurls;
+					my $rand = int(rand(scalar(@tempurls)));
+					my $chosen_url = $tempurls[$rand];
+					push (@urls, $chosen_url);
+					$hostnames{$last_digest} = $last_red_uri;
+					@tempurls = ();
+				}
+			}
+			else {
+				unless (exists $seen_hostnames{$last_digest}) {
+					push (@urls, $last_url);
+					$hostnames{$last_digest} = $last_red_uri;
+				}
+				unless (exists $seen_hostnames{$digest}) {
+					push (@urls, $ext_uri);
+					$hostnames{$digest} = $red_uri;
+				}
+			}
+		}
+	}
+
 	close($ltodo);
 }
 else {
 	die 'No to-do list found under this file name: ' . $todo;
 }
 
+# clear the hashes
 %seen = ();
-%hostnames = ();
 @urls = grep { ! $seen{ $_ }++ } @urls;
 die 'not enough links in the list, try --all ?' if ((defined $links_count) && (scalar(@urls) < $links_count));
 
@@ -363,25 +417,26 @@ sub fetch_url {
 	# send request
   	$res = $lwp_ua->request($req);
 	if ($res->is_success) {
+		$visits++;
 		# check if the request was redirected to a URL that has already been seen
 		$final_red = $res->request()->uri();
 		($scheme, $auth, $path, $query, $frag) = uri_split($final_red);
-		my $final_short;
-		if ($final_red =~ m/^https:\/\//) {
-			$final_short = uri_join($scheme, $auth);
-		}
-		else {
-			$final_short = $auth;
-		}
-		$digest = substr(md5_hex($final_short), 0, $md5length);
-		if (exists $hostnames{$digest}) {
-			alarm 0;
-			die "Dropped (redirect already seen):\t" . $finaluri;
+		my $final_ext = uri_join($scheme, $auth, $path);
+		my $final_hostname = $auth;
+		$final_hostname =~ s/^www[0-9]?\.//;
+
+		$digest = substr(md5_hex($final_hostname), 0, $md5length);
+		if (defined $hostreduce) {
+			if (exists $seen_hostnames{$digest}) {
+				alarm 0;
+				die "Dropped (redirect already seen):\t" . $finaluri;
+			}
+			if (! exists $hostnames{$digest}) {
+				print "Just saw a unknown redirect:\t" . $final_red . "\n";
+				$hostnames{$digest} = $final_hostname;
+			}
 		}
 
-		$visits++;
-		$digest = substr(md5_hex($final_red), 0, $md5length);
-		$hostnames{$digest}++;
 		# check the size of the page (to avoid a memory overflow)
 		my $testheaders = $res->headers;
 		if ($testheaders->content_length) {
@@ -394,7 +449,7 @@ sub fetch_url {
 		$length_a = length($body);
 
 		{ no warnings 'uninitialized';
-			if ($length_a < 1000) { # was 100, could be another value
+			if ($length_a < $raw_size_limit) { # was 100, could be another value
 				alarm 0;
 				die "Dropped (by body size):\t\t" . $finaluri;
 			}
@@ -407,7 +462,7 @@ sub fetch_url {
 			$hs->eof;
 
 			$length_b = length($clean_text);
-			if ($length_b < 500) { # was 100, could also be another value
+			if ($length_b < $clean_size_limit) { # was 100, could also be another value
 				alarm 0;
 				die "Dropped (by clean size):\t" . $finaluri;
 			}
@@ -637,14 +692,27 @@ close($log);
 
 
 ## THE END
+
 # no server found option
 unless ($skip == 1) {
 	splice(@urls, 0, $url_count);
 }
+
 # rest of the todo links (can be 0)
 open (my $ltodo, '>', $todo);
 print $ltodo join("\n", @urls);
 close($ltodo);
+
+# print seen hostnames
+
+open (my $seenfh, '>>', $urlseenfile);
+my ($j, $k);
+while ( ($j, $k) = each %hostnames ) {
+	#print $seenfh "$j\t$k\n";
+	lock_and_write($seenfh, "$j\t$k", $urlseenfile);
+}
+close($seenfh);
+
 
 # Print infos
 if (defined $filesuffix) {

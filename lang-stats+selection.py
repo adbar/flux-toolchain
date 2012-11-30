@@ -101,7 +101,7 @@ if options.sample is None:
 		print (len(urld), 'total unique urls')
 		print ('-Language-\t', '-Code-', '-Docs-', '-%-', sep='\t')
 	else:
-		print ('|   ', len(urld), 'total unique urls   |||')
+		print ('|   ', len(urld), 'total unique urls   ||||')
 		print ('|*Language*\t', '*Code*', '   *Docs*', '   *%*|', sep='|')
 
 	for l in sorted(langd, key=langd.get, reverse=True):
@@ -160,11 +160,11 @@ if options.lcodes is not None:
 				if options.sample is not None:
 					#try:
 						if ipdict[key] not in presample:
-							presample[ipdict[key]] = hashd[key]
+							presample[key] = hashd[key] # was presample[ipdict[key]]
 						else:
 							# ensure pseudo-randomness, and not only alphabetical sorting biases
 							if random.random() > 0.5:
-								presample[ipdict[key]] = hashd[key]
+								presample[key] = hashd[key] # was presample[ipdict[key]]
 					#except KeyError:
 					#	print (key, ipdict[key])
 				else:

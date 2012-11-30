@@ -20,6 +20,7 @@
 ## advanced divide and conquer and/or URL pool
 ## more than 10 threads
 ### pool file = one half of the links, if n > 100, take the tenth of the list, export thread number
+# url-dict-seen vs. url-dict-done...
 
 
 if (($# < 3)) || (($# > 4))
@@ -28,9 +29,9 @@ then
 	exit 1
 fi
 
-if (($3 > 30))
+if (($3 > 50))
 then
-	echo "No more than 30 threads please."
+	echo "No more than 50 threads please."
 	exit 1
 fi
 
@@ -131,11 +132,12 @@ do
 	fi
 
 	# launch the script
+	# rsl = raw-size-limit | csl = clean-size-limit
 	if (($# == 4))
 	then
-		perl fetch+lang-check.pl -t 12 --port $port --seen $4 --hostreduce --all --filesuffix $j $f &
+		perl fetch+lang-check.pl -t 12 --port $port --seen $4 --hostreduce --all --filesuffix $j --rsl 2000 --csl 1500 $f &
 	else
-		perl fetch+lang-check.pl -t 12 --port $port --hostreduce --all --filesuffix $j $f &
+		perl fetch+lang-check.pl -t 12 --port $port --hostreduce --all --filesuffix $j --rsl 2000 --csl 1500 $f &
 	fi
 	sleep 2
 	((i++))
@@ -192,5 +194,5 @@ mv $TMP1 TODO
 
 
 # Backup the final result
-tar -cjf backup.tar.bz2 RESULTS TO-CHECK TODO URL-DICT URL-COUPLES
+tar -cjf backup.tar.bz2 RESULTS TO-CHECK TODO URL-DICT URL-COUPLES URL-SEEN
 

@@ -24,6 +24,8 @@ echo -e "Total results before uniq :\t"$(wc -l ${TMP1} | cut -d " " -f1)
 sort $TMP1 | uniq > global-results
 echo -e "Total results after uniq :\t"$(wc -l global-results | cut -d " " -f1)
 
+rm $TMP1
+
 
 # URL-COUPLES
 
@@ -32,6 +34,8 @@ echo -e "Total URL couples before uniq :\t"$(wc -l ${TMP1} | cut -d " " -f1)
 
 sort $TMP1 | uniq > global-url-couples
 echo -e "Total URL couples after uniq :\t"$(wc -l global-url-couples | cut -d " " -f1)
+
+rm $TMP1
 
 
 # URL-DICT

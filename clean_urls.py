@@ -8,7 +8,6 @@
 
 from __future__ import print_function
 from __future__ import division
-from collections import defaultdict
 from urlparse import urlparse
 import re
 import optparse
@@ -19,7 +18,8 @@ import sys
 ## split lines of the kind '.htmlhttp://'
 ## more banned hostnames (Alexa list)
 ## english link text
-
+#### spamdict problem
+#### check options
 
 
 # Parse arguments and options
@@ -37,8 +37,8 @@ if options.inputfile is None or options.outputfile is None:
 
 # Main regexes
 protocol = re.compile(r'^http')
-hostnames_filter = re.compile(r'last\.fm|soundcloud\.com|youtube\.com|youtu\.be|vimeo\.com|instagr\.am|instagram\.com|imgur\.com/|flickr\.com|google\.|twitter\.com|twitpic\.com', re.IGNORECASE)
-mediafinal = re.compile(r'\.jpg$|\.jpeg$|\.png$|\.gif$|\.pdf$|\.ogg$|\.mp3$|\.avi$|\.mp4$|\.css$', re.IGNORECASE)
+hostnames_filter = re.compile(r'last\.fm|soundcloud\.com|youtube\.com|youtu\.be|vimeo\.com|instagr\.am|instagram\.com|imgur\.com/|flickr\.com|google\.|twitter\.com|twitpic\.com|gravatar\.com', re.IGNORECASE)
+mediafinal = re.compile(r'\.jpg$|\.jpeg$|\.png$|\.gif$|\.pdf$|\.ogg$|\.mp3$|\.avi$|\.mp4$|\.css$|\.ico$|\.pls$', re.IGNORECASE)
 notsuited = re.compile(r'^http://add?\.|^http://banner\.|feed$', re.IGNORECASE)
 mediaquery = re.compile(r'\.jpg[&?]|\.jpeg[&?]|\.png[&?]|\.gif[&?]|\.pdf[&?]|\.ogg[&?]|\.mp3[&?]|\.avi[&?]|\.mp4[&?]', re.IGNORECASE)
 
@@ -47,18 +47,22 @@ mediaquery = re.compile(r'\.jpg[&?]|\.jpeg[&?]|\.png[&?]|\.gif[&?]|\.pdf[&?]|\.o
 if options.spamlistfile is not None:
 	try:
 		spamlistfile = open(options.spamlistfile, 'r')
-		spamdict = defaultdict(int)
+		spamset = set()
 		# there should be domains names in the file
 		for domain in spamlistfile:
 			domain = domain.rstrip()
-			spamdict[domain] += 1
+			spamset.add(domain)
 		spamlistfile.close()
-		print('Length of the spam list: {:,}' . format(len(spamdict)))
+		# '{} format' not supported before Python 2.7
+		try:
+			print('Length of the spam list: {:,}' . format(len(spamset)))
+		except ValueError:
+			print('Length of the spam list:', len(spamset))
 	except IOError:
 		print('Could not open the file containing the spam-list:', options.spamlistfile, '\nThe URLs will not be checked for spam.')
 	# fall-back if there is nowhere to write the urls seen as spam
 	if options.spamurls is None:
-		print('No spam-urls file given, defaulting to "spam-detected-urls".')
+		print('No spam-tagged file given, defaulting to "spam-detected-urls".')
 		options.spamurls = 'spam-detected-urls'
 	try:
 		spamurls = open(options.spamurls, 'w')
@@ -68,6 +72,7 @@ if options.spamlistfile is not None:
 		sflag = 0
 else:
 	print('No spam-list given, the URLs will not be checked for spam.')
+	sflag = 0
 
 
 # Open source and destination files
@@ -94,11 +99,14 @@ for candidate in sourcefile:
 		if not hostnames_filter.search(candidate) and not mediafinal.search(candidate) and not notsuited.search(candidate) and not mediaquery.search(candidate):
 			# domain spam check
 			domain = urlparse(candidate).netloc
-			if domain not in spamdict:
-				destfile.write(candidate + "\n")
+			if 'spamset' in globals():
+				if domain not in spamset:
+					destfile.write(candidate + "\n")
+				else:
+					spamurls.write(candidate + "\n")
+					dropped_urls += 1
 			else:
-				spamurls.write(candidate + "\n")
-				dropped_urls += 1
+				destfile.write(candidate + "\n")
 		else:
 			dropped_urls += 1
 
@@ -111,6 +119,14 @@ destfile.close()
 
 # print final results
 ## http://docs.python.org/library/string.html#format-specification-mini-language
-print('Total URLs seen: {:,}' . format(total_urls))
-print('Total URLs dropped: {:,}' . format(dropped_urls))
-print('Ratio: {0:.2f}' . format((dropped_urls/total_urls)*100), '%')
+## '{} format' not supported before Python 2.7
+try:
+	print('Total URLs seen: {:,}' . format(total_urls))
+	print('Total URLs dropped: {:,}' . format(dropped_urls))
+	print('Ratio: {0:.2f}' . format((dropped_urls/total_urls)*100), '%')	
+except ValueError:
+	print('Total URLs seen:', total_urls)
+	print('Total URLs dropped:', dropped_urls)
+	#print('Total URLs dropped: %d' dropped_urls)
+	print('Ratio:', ((dropped_urls/total_urls)*100), '%')
+	#print('Ratio: %.02f' ((dropped_urls/total_urls)*100), '%')
