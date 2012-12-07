@@ -24,7 +24,7 @@ use HTML::Clean;
 use Time::HiRes qw( time sleep );
 use Try::Tiny; # on Debian/Ubuntu package libtry-tiny-perl
 use Socket;
-use Digest::MD5 qw(md5_hex);
+use Digest::MD5 qw(md5_base64);
 # use Time::ParseDate; # libtime-modules-perl
 
 
@@ -55,6 +55,9 @@ catch {
 ## DNS queries auf externe Domains ?
 ## filter the links ?
 ## URL verlinkt auf [tab] URL (crc32 ?)
+# hostname checking option
+# add text if hr
+# shorter seen urls than the md5 ?
 
 
 
@@ -106,7 +109,7 @@ my $alarm_timeout = 20 + $timeout;
 my $agent = "FLUX-Toolchain/0.4";
 
 ## MD5 digest length
-my $md5length = 12; # enough below ~10 millions of URLs
+my $md5length = 12; # enough below at least 200 millions of URLs
 
 ## Most global variables here
 my (@urls, %seen, %hostnames, %seen_hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $furl, $lwp_ua, $body, $final_red, $length_a, $length_b, $wordcount);
@@ -152,7 +155,7 @@ if ((defined $seen) && (-e $seen)) {
 		# expected : first column hash, second one whole url without protocol, rest whatever
 		if ($_ =~ m/\t/) {
 			my @temp = split ("\t", $_);
-			$seen_hostnames{$temp[0]}++;	# = $temp[1];
+			$seen_hostnames{$temp[0]} = ();	# = $temp[1];
 		}
 		# if it's just a 'simple' list of urls
 		## add url parser support
@@ -161,8 +164,8 @@ if ((defined $seen) && (-e $seen)) {
 			$_ =~ s/^http:\/\///;		# remove protocol
 			$_ =~ s/^https:\/\///;		# remove protocol
 			$_ =~  s/^www[0-9]?\.//;	# remove www
-			$digest = substr(md5_hex($_), 0, $md5length);
-			$seen_hostnames{$digest} = $_;
+			$digest = substr(md5_base64($_), 0, $md5length);
+			$seen_hostnames{$digest} = ();	# = $_
 		}
 	}
 	close($ldone);
@@ -201,7 +204,7 @@ if (-e $todo) {
 		if ( (defined $hostreduce) || (length($ext_uri) == length($auth)+1) ) {
 			## sampling : reduction from many urls with the same hostname to hostname & sample (random) url
 			# digest used for existence tests to spare memory
-			$digest = substr(md5_hex($red_uri), 0, $md5length);
+			$digest = substr(md5_base64($red_uri), 0, $md5length);
 			next if (exists $seen_hostnames{$digest});
 
 			# just for the first URL of the list
@@ -220,7 +223,7 @@ if (-e $todo) {
 						push (@urls, $chosen_url);
 						$hostnames{$last_digest} = $last_red_uri;
 							# may not be necessary : the reduced url is the filter
-							# my $chosen_digest = substr(md5_hex($chosen_url), 0, $md5length)
+							# my $chosen_digest = substr(md5_base64($chosen_url), 0, $md5length)
 							# $hostnames{$chosen_digest}++;
 						@tempurls = ();
 					}
@@ -237,7 +240,7 @@ if (-e $todo) {
 		}
 		else {
 			# whole URL digest, spare memory
-			$digest = substr(md5_hex($ext_uri), 0, $md5length);
+			$digest = substr(md5_base64($ext_uri), 0, $md5length);
 			unless (exists $seen_hostnames{$digest}) {
 				push (@urls, $ext_uri);
 				$hostnames{$digest}++;
@@ -247,7 +250,7 @@ if (-e $todo) {
 
 	# last URL
 	if (defined $hostreduce) {
-		$digest = substr(md5_hex($red_uri), 0, $md5length);
+		$digest = substr(md5_base64($red_uri), 0, $md5length);
 		if (defined $last_red_uri) {
 			# if the 'hostname' is equal to the last one
 			if ($red_uri eq $last_red_uri) {
@@ -422,11 +425,11 @@ sub fetch_url {
 		$final_red = $res->request()->uri();
 		($scheme, $auth, $path, $query, $frag) = uri_split($final_red);
 		my $final_ext = uri_join($scheme, $auth, $path);
-		my $final_hostname = $auth;
-		$final_hostname =~ s/^www[0-9]?\.//;
-
-		$digest = substr(md5_hex($final_hostname), 0, $md5length);
+		
 		if (defined $hostreduce) {
+			my $final_hostname = $auth;
+			$final_hostname =~ s/^www[0-9]?\.//;
+			$digest = substr(md5_base64($final_hostname), 0, $md5length);
 			if (exists $seen_hostnames{$digest}) {
 				alarm 0;
 				die "Dropped (redirect already seen):\t" . $finaluri;
@@ -569,9 +572,9 @@ sub fetch_url {
 			$suspicious = 1;
 		}
 
-		# INFOS (section added)
+		## INFOS (section recently added)
 		# digest
-		my $final_digest = substr(md5_hex($final_red), 0, $md5length);
+		my $final_digest = substr(md5_base64($final_red), 0, $md5length);
 		if ($final_red eq $finaluri) {
 			print $urldict $final_digest . "\t" . $final_red . "\tø\n";
 		}
@@ -625,10 +628,20 @@ sub fetch_url {
 
 		# parse the links of the page
 		my (@inlinks, @outlinks);
-		while ( $body =~ m/href="(http:\/\/.+?)"/g ) {
+		while ( $body =~ m/href="(https?:\/\/.+?)"/g ) {
 			my $testurl = $1;
+			# https
+			$testurl =~ s/^https/http/;
 			# basic media filter
-			if ($testurl !~ m/\.jpg$|\.jpeg$|\.png$|\.gif$|\.pdf$|\.ogg$|\.mp3$|\.avi$|\.mp4$|\.css$/) {
+			## extensions
+			if ($testurl !~ m/\.atom$|\.json$|\.css$|\.xml$|\.js$|\.jpg$|\.jpeg$|\.png$|\.gif$|\.tiff$|\.pdf$|\.ogg$|\.mp3$|\.m4a$|\.aac$|\.avi$|\.mp4$|\.mov$|\.webm$|\.flv$|\.ico$|\.pls$|\.zip$|\.tar$|\.gz$|\.iso$|\.swf$/io) {
+			## not wanted
+			if ($testurl !~ m/^http:\/\/add?s?\.|^http:\/\/banner\.|tradedoubler\.com|livestream|live\.|videos\.|feed$|rss$/io) {
+			## frequent hostnames with nearly no text
+			if ($testurl !~ m/last\.fm|soundcloud\.com|youtube\.com|youtu\.be|vimeo\.com|instagr\.am|instagram\.com|imgur\.com|flickr\.com|google\.|twitter\.com|twitpic\.com|gravatar\.com/io) {
+			## media queries
+			if ($testurl !~ m/\.jpg[&?]|\.jpeg[&?]|\.png[&?]|\.gif[&?]|\.pdf[&?]|\.ogg[&?]|\.mp3[&?]|\.avi[&?]|\.mp4[&?]/io) {
+
 				# find the outlinks
 				$uri = URI->new( $testurl );
 				$domain = $uri->host;
@@ -642,19 +655,19 @@ sub fetch_url {
 				else {
 					push (@outlinks, $testurl);
 				}
-			}
+			}}}}
 		}
-		# deduplicate
+		# uniq
 		%seen = ();
 		@inlinks = grep { ! $seen{ $_ }++ } @inlinks;
 		%seen = ();
 		@outlinks = grep { ! $seen{ $_ }++ } @outlinks;
 		# hash the links and add them to the dictionary : filter them before ?
 		foreach my $inlink (@outlinks) {
-			print $urldict substr(md5_hex($inlink), 0, 12) . "\t" .  $inlink . "\tø\n";
+			print $urldict substr(md5_base64($inlink), 0, $md5length) . "\t" .  $inlink . "\tø\n";
 		}
 		foreach my $outlink (@outlinks) {
-			my $tempoutdig = substr(md5_hex($outlink), 0, 12);
+			my $tempoutdig = substr(md5_base64($outlink), 0, $md5length);
 			print $urldict $tempoutdig . "\t" .  $outlink . "\tø\n";
 			print $urlcouples $final_digest . "\t" . $tempoutdig . "\n";
 		}
