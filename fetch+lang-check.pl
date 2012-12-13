@@ -25,7 +25,7 @@ use Time::HiRes qw( time sleep );
 use Try::Tiny; # on Debian/Ubuntu package libtry-tiny-perl
 use Socket;
 use Digest::MD5 qw(md5_base64);
-# use Time::ParseDate; # libtime-modules-perl
+use Time::Piece;
 
 
 # test for Furl, use LWP as a fallback
@@ -62,9 +62,9 @@ catch {
 
 
 # command-line options
-my ($help, $seen, $hostreduce, $fileprefix, $filesuffix, $links_count, $put_ip, $port, $timeout, $all_links, $raw_size_limit, $clean_size_limit);
+my ($help, $seen, $hostreduce, $fileprefix, $filesuffix, $links_count, $put_ip, $port, $timeout, $all_links, $raw_size_limit, $clean_size_limit, $markers);
 usage() if ( @ARGV < 1
-	or ! GetOptions ('help|h' => \$help, 'putip|ip=s' => \$put_ip, 'port|p=i' => \$port, 'timeout|t=i' => \$timeout, 'seen|s=s' => \$seen, 'fileprefix|fp=s' => \$fileprefix, 'filesuffix|fs=s' => \$filesuffix, 'hostreduce|hr' => \$hostreduce, 'all|a' => \$all_links, 'links|l=i' => \$links_count, 'rsl=i' => \$raw_size_limit, 'csl=i' => \$clean_size_limit)
+	or ! GetOptions ('help|h' => \$help, 'putip|ip=s' => \$put_ip, 'port|p=i' => \$port, 'timeout|t=i' => \$timeout, 'seen|s=s' => \$seen, 'fileprefix|fp=s' => \$fileprefix, 'filesuffix|fs=s' => \$filesuffix, 'hostreduce|hr' => \$hostreduce, 'all|a' => \$all_links, 'links|l=i' => \$links_count, 'rsl=i' => \$raw_size_limit, 'csl=i' => \$clean_size_limit, 'markers|m' => \$markers)
 	or defined $help
 	or (defined $all_links && defined $links_count)
 );
@@ -80,7 +80,8 @@ sub usage {
 	print "suffix : all the same\n";
 	print "EITHER --all OR a given number of links\n";
 	print "hostreduce : keep only the hostname & evt. a random full URL for each hostname\n";
-	print "raw and clean size limits : text length before and after HTML stripping (default: 1000 and 500)\n\n";
+	print "raw and clean size limits : text length before and after HTML stripping (default: 1000 and 500)\n";
+	print "markers : expects two directories, 'discourse-markers' and 'temporal-markers' with files following the languages codes\n\n";
 	exit;
 }
 
@@ -110,6 +111,60 @@ my $agent = "FLUX-Toolchain/0.4";
 
 ## MD5 digest length
 my $md5length = 12; # enough below at least 200 millions of URLs
+
+## Markers
+my %discourse_markers;
+my %temporal_markers;
+my @lcodes = ('da', 'de', 'en', 'es', 'fi', 'fr', 'hu', 'id', 'it', 'nl', 'no', 'pl', 'pt', 'sv', 'tr');
+
+sub open_load_discourse {
+	my (@list, %hash);
+	my $lcode = shift;
+	my $filename = "discourse-markers/" . $lcode;
+	open (my $fh, "<", $filename) or die "Cannot open markers file : $!\n";
+	while (<$fh>) {
+		chomp;
+		{ no warnings 'uninitialized';
+			if (len($_) > 1) {
+				push (@list, $_);
+			}
+		}
+	}
+	close($fh);
+	@list = grep { ! $hash{ $_ }++ } @list;
+	
+	return (@list);
+}
+
+sub open_load_temporal {
+	my (@list, %hash);
+	my $lcode = shift;
+
+	my $filename = "temporal-markers/" . $lcode;
+	open (my $fh, "<", $filename) or die "Cannot open markers file : $!\n";
+	while (<$fh>) {
+		chomp;
+		{ no warnings 'uninitialized';
+			if (len($_) > 1) {
+				push (@list, $_);
+			}
+		}
+	}
+	close($fh);
+	@list = grep { ! $hash{ $_ }++ } @list;
+	
+	return (@list);
+}
+
+if (defined $markers) {
+	foreach my $lc (@lcodes) {
+		#my (@temp1, @temp2) = open_load($lc);
+		$discourse_markers{$lc} = [ open_load_discourse($lc) ];
+		#print $lc . " " . scalar(@{ $discourse_markers{$lc} }) . "\n";
+		$temporal_markers{$lc} = [ open_load_temporal($lc) ];
+		#print $lc . " " . scalar(@{ $temporal_markers{$lc} }) . "\n";
+	}
+}
 
 ## Most global variables here
 my (@urls, %seen, %hostnames, %seen_hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $furl, $lwp_ua, $body, $final_red, $length_a, $length_b, $wordcount);
@@ -585,8 +640,31 @@ sub fetch_url {
 		# HTTP last-modified
 		my $httplast;
 		if ($res->header( 'last-modified' )) {
-			$httplast = $res->header( 'last-modified' );
+			my $timexp = $res->header( 'last-modified' );
+			# try to parse the date
+			$timexp =~ s/,//;
+			my $time;
+			try {
+				if ($timexp =~ m/GMT|UTC/) {
+					# UTC workaround
+					if ($timexp =~ "UTC") {
+						$timexp =~ s/UTC/GMT/;
+					}
+					$time = Time::Piece->strptime($timexp, '%a %d %b %Y %H:%M:%S %Z');
+					}
+				else {
+					$time = Time::Piece->strptime($timexp, '%a %d %b %Y %H:%M:%S %z');
+				}
+				my $timestamp = $time->strftime('%s');
+				$httplast = $timestamp;
+			}
+			# default if parsing fails
+			catch {
+				$httplast =~ s/\t+/ /g;
+				$httplast = "! " . $httplast;
+			}
 		}
+		# default if no date
 		else {
 			$httplast = "ø";
 		}
@@ -675,10 +753,47 @@ sub fetch_url {
 		# number of words (approximation)
 		## use feature 'unicode_strings'; not before Perl 5.12
 		## unicode flag, does not work before Perl 5.14 : my $nwords = () = $clean_text =~ /\w+ /giu;
-		my $nwords = () = $clean_text =~ /\p{L}+ |\p{L}+\p{P}|\p{L}+$/gi;
+		# my $nwords = () = $clean_text =~ /\p{L}+ |\p{L}+\p{P}|\p{L}+$/gi;
+		my $nwords = () = $clean_text =~ /\b\p{L}+\b|\b\p{L}+\p{P}\b/gi;
 
-		my $output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast;
+		# markers in the text
+		my ($discourse_score, $temporal_score, $testscore, $testu, $discourse);
+		if (defined $markers) {
+			$discourse = 0;
+			if (exists $discourse_markers{$lang}) {
+				foreach my $testword (@{ $discourse_markers{$lang} }) {
+					# regex matching
+					$discourse += () = $clean_text =~ /\b${testword}\b/gi;
+					# combined regex
+					#my $testcomb .= join("|", @{ $discourse_markers{$lang} });
+					#$testscore = () = $clean_text =~ /\b(${testcomb})\b/gi;
+					#$testcomb =~ s/ //g;
+					#$testu = () = $clean_text =~ /\b(${testcomb})\b/giu;
+				}
+			}
+			my $temporal = 0;
+			if (exists $temporal_markers{$lang}) {
+				foreach my $testword (@{ $temporal_markers{$lang} }) {
+					# regex matching
+					$temporal += () = $clean_text =~ /\b${testword}\b/gi;
+				}
+			}
+			# ratio ignoring multi-word expressions
+			#print (($discourse/$nwords)*100) . "\t" .  (($testscore/$nwords)*100) . "\t" . (($testu/$nwords)*100) . "\n";
+			$discourse_score = sprintf "%.3f", (($discourse/$nwords)*100);
+			$temporal_score = sprintf "%.3f", (($temporal/$nwords)*100);
+		}
 
+		# output string
+		my $output_result;
+		if (defined $markers) {
+			$output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast . "\t" . $discourse_score . "\t" . $temporal_score; # . "\t" . $discourse . "\t" . $testscore . "\t" . $testu
+		}
+		else {
+			$output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast;
+		}
+
+		# counters
 		if ($suspicious == 1) {
 			$suspcount++;
 			print $check_again_fh $output_result . "\n";
