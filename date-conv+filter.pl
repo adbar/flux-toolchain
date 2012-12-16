@@ -27,6 +27,8 @@ sub usage {
 }
 
 
+my (%hash, %deletions);
+
 open (my $input, "<", $inputfile) or die "Cannot open input file : $!\n";
 open (my $converted, ">", $outputfile) or die "Cannot open output file : $!\n";
 
@@ -35,7 +37,7 @@ while (<$input>) {
 	my @line = split("\t", $_);
 	my $timexp = $line[9];
 	$timexp =~ s/,//;
-	unless ( ($timexp eq "ø") || ($timexp =~ /^!/) ) {
+	unless ( ($timexp eq "ø") || ($timexp =~ /^[0-9]+$/) || ($timexp =~ /^!/) ) {
 		my $time;
 		try {
 			# UTC workaround
@@ -58,8 +60,30 @@ while (<$input>) {
 	else {
 		$line[9] = $timexp;
 	}
+
 	my $convline = join("\t", @line);
 	print $converted $convline . "\n";
+
+	# if the lines are to be merged
+	if ( (defined $mergedfile) && ($line[9] =~ /^[0-9]+$/) ) {
+		unless (exists $hash{$line[0]}) {
+			$hash{$line[0]} = $line[9];
+		}
+		# if the hashed URL has already been seen
+		else {
+			# create deletion key
+			if (! exists $deletions{$line[0]}) {
+				$deletions{$line[0]} = ();
+			}
+			# update the hash : keep the most recent date as hash value
+			# if the line contains a UNIX-style date : optimize [ø!] ?
+			if ( ($line[9] =~ /^[0-9]+$/) && ($hash{$line[0]} =~ /^[0-9]+$/) ) {
+				if ($line[9] > $hash{$line[0]}) {
+					$hash{$line[0]} = $line[9];
+				}
+			}
+		}
+	}
 }
 
 close($input);
@@ -68,45 +92,19 @@ close($converted);
 
 # merge the results, keeping only the most recent one
 if (defined $mergedfile) {
-	
-	my (%hash, %deletions);
 
 	open (my $input2, "<", $outputfile) or die "Cannot open conversion file : $!\n";
+	open (my $merged, ">", $mergedfile) or die "Cannot open merging file : $!\n";
 	while (<$input2>) {
 		chomp;
 		my @line = split("\t", $_);
-		# if the line contains a UNIX-style date
-		if ( ($line[9] !~ m/^!/) && ($line[9] !~ m/ø/) ) {
-			# if the hashed URL is new
-			unless (exists $hash{$line[0]}) {
-				$hash{$line[0]} = $line[9];
-			}
-			# if the hashed URL has already been seen
-			else {
-				# create deletion key
-				if (! exists $deletions{$line[0]}) {
-					$deletions{$line[0]} = ();
-				}
-				# update the hash : keep the most recent date as hash value
-				if ($line[9] > $hash{$line[0]}) {
-					$hash{$line[0]} = $line[9];
-				}
-			}
-		}
-	}
-	close($input2);
-
-	open (my $input3, "<", $outputfile) or die "Cannot open conversion file : $!\n";
-	open (my $merged, ">", $mergedfile) or die "Cannot open merged file : $!\n";
-	while (<$input3>) {
-		chomp;
-		my @line = split("\t", $_);
-		if ( ($line[9] !~ m/^!/) && ($line[9] !~ m/ø/) ) {
+		if ( $line[9] =~ /^[0-9]+$/ ) {
 			# check if the line has been marked for deletion
 			if (exists $deletions{$line[0]}) {
 				# check the time stamp against the highest seen for this URL
-				if ($line[9] >= $hash{$line[0]}) { # what if "ø" or "!" ?
-					if (! defined $deletions{$line[0]}) {
+				if ($line[9] >= $hash{$line[0]}) {
+					# avoid duplicates
+					unless (defined $deletions{$line[0]}) {
 						print $merged $_ . "\n";
 						$deletions{$line[0]} = 1;
 					}
@@ -117,13 +115,16 @@ if (defined $mergedfile) {
 			}
 		}
 		else {
-			if (! exists $deletions{$line[0]}) {
+			# check if there is a numerical date value somewhere (= stored in the hash)
+			unless (exists $hash{$line[0]}) {
 				print $merged $_ . "\n";
-				$deletions{$line[0]} = 1;
+				# avoid duplicates (could also use the deletions hash)
+				$hash{$line[0]} = ();
 			}
 		}
 	}
 
 	close($merged);
-	close($input3);
+	close($input2);
+
 }
