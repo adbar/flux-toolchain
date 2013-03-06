@@ -10,6 +10,7 @@
 ## example of use:
 ## (python langid.py -s --host=localhost -l en,cs,de,sk,fr,pl,it,es,ja,nl,ru,he,hu,sl,hr,pt,sv,fi,et,no,lt,da,ro,bs,tr,ar,ka,ca,el,uk,is,bg,lv,vi,sw,sr,eo,nb,ga,eu &> lang-id.log &)
 ## (bash langcheck_threads.sh list-of-links 50000 6 &> logfile.log &)
+## all links : (bash langcheck_threads.sh list-of-links 0 10 &> logfile.log &)
 
 
 
@@ -38,6 +39,19 @@ fi
 listfile=$1
 req=$2
 num_files=$3
+
+
+# Existing files check
+if [ ! -f clean_urls.py ];
+then
+	echo "File clean_urls.py not found"
+	exit 3
+fi
+if [ ! -f spam-domain-blacklist ];
+then
+	echo "Spam domains list not found"
+	exit 3
+fi
 
 
 # Create a temporary file
@@ -69,7 +83,7 @@ then
 	echo "Spam domains list not found"
 	exit 0
 fi
-python clean_urls.py -i $TMP1 -o cleaned-url-list -l spam-domain-blacklist -s SPAM2
+python clean_urls.py -i $TMP1 -o cleaned-url-list -l spam-domain-blacklist -s SPAM2 --adult-filter
 listfile="cleaned-url-list"
 #mv $TMP1 $listfile
 
@@ -135,9 +149,9 @@ do
 	# rsl = raw-size-limit | csl = clean-size-limit
 	if (($# == 4))
 	then
-		perl fetch+lang-check.pl -t 12 --port $port --seen $4 --hostreduce --all --filesuffix $j --rsl 2000 --csl 1500 $f &
+		perl fetch+lang-check.pl -t 12 --port $port --seen $4 --hostreduce --all --filesuffix $j --rsl 1200 --csl 1000 $f &
 	else
-		perl fetch+lang-check.pl -t 12 --port $port --hostreduce --all --filesuffix $j --rsl 2000 --csl 1500 $f &
+		perl fetch+lang-check.pl -t 12 --port $port --hostreduce --all --filesuffix $j --rsl 1200 --csl 1000 $f &
 	fi
 	sleep 2
 	((i++))
@@ -196,3 +210,6 @@ mv $TMP1 TODO
 # Backup the final result
 tar -cjf backup.tar.bz2 RESULTS TO-CHECK TODO URL-DICT URL-COUPLES URL-SEEN
 
+# Clean up
+# rm BAD-HOSTS ERRORS LINKS-TODO-redchecked LOG RED-LINKS-TODO RESULTS SPAM1 SPAM2 TO-CHECK TODO URL-COUPLES URL-DICT cleaned-url-list fs.log red-ERRORS rr.log URL-SEEN URL-SEEN-BUFFER.*
+# rm spam-domain-blacklist

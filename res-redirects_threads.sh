@@ -59,7 +59,7 @@ then
 	echo "Spam domains list not found"
 	exit 0
 fi
-python clean_urls.py -i $TMP1 -o cleaned-url-list -l spam-domain-blacklist -s SPAM1
+python clean_urls.py -i $TMP1 -o cleaned-url-list -l spam-domain-blacklist -s SPAM1 --adult-filter
 #mv $TMP1 $listfile
 
 
@@ -99,16 +99,15 @@ for f in LINKS-TODO.*
 do
 	### starting the threads
 
-	# prepend "0" to match split results
-	if (($i < 10))
-	then
-		j="0"$i
-	else
-		j=$i
-	fi
-
-	perl resolve-redirects.pl -t 10 --all --filesuffix $j $f &
-
+		# prepend "0" to match split results
+		if (($i < 10))
+		then
+			j="0"$i
+		else
+			j=$i
+		fi
+		perl resolve-redirects.pl -t 10 --all --filesuffix $j $f &
+	#fi
 	sleep 2
 	((i++))
 done
