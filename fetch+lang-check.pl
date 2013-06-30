@@ -45,6 +45,9 @@ catch {
 
 # NO SHORTENED URLS RESOLUTION ANYMORE IN THIS SCRIPT
 
+
+## Issues to file : languages to exclude
+
 # TODO :
 # hash + undef links that are already processed ?
 # hostreduce -> hostsampling with just 1 url ? or 1,2,3,... option ?
@@ -55,15 +58,12 @@ catch {
 ## CC-Inhalt, Quelle ?
 ## DNS queries auf externe Domains ?
 ## filter the links ?
-## URL verlinkt auf [tab] URL (crc32 ?)
 # hostname checking option
 # add text if hr
 # shorter seen urls than the md5 ?
 # performance test for marker detection
 # improve url seen buffer # url buffer, what for ?
-# normalize confidence : %2d
 # unicode chars handling in put request
-# check for document duplicates
 
 
 # command-line options
@@ -141,6 +141,7 @@ if (defined $fileprefix) {
 	$todo = $fileprefix . "_" . $todo;
 	$done = $fileprefix . "_" . $done; # may change
 	$tocheck = $fileprefix . "_" . $tocheck;
+	#$urlseenfile = $fileprefix . "_" . $urlseenfile;
 	$urlseen_bufferfile = $fileprefix . "_" . $urlseen_bufferfile;
 	$urldictfile = $fileprefix . "_" . $urldictfile;
 	$urlcouplesfile = $fileprefix . "_" . $urlcouplesfile;
@@ -150,6 +151,7 @@ if (defined $filesuffix) {
 	$todo = $todo . "." . $filesuffix;
 	$done = $done . "." . $filesuffix; # may change
 	$tocheck = $tocheck . "." . $filesuffix;
+	#$urlseenfile = $urlseenfile . "." . $filesuffix;
 	$urlseen_bufferfile = $urlseen_bufferfile . "." . $filesuffix;
 	$urldictfile = $urldictfile . "." . $filesuffix;
 	$urlcouplesfile = $urlcouplesfile . "." . $filesuffix;
@@ -169,10 +171,7 @@ if ((defined $seen) && (-e $seen)) {
 		# if it's just a 'simple' list of urls
 		## add url parser support
 		else {
-			$_ =~ s/\/$//;			# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
-			$_ =~ s/^http:\/\///;		# remove protocol
-			$_ =~ s/^https:\/\///;		# remove protocol
-			# $_ =~  s/^www[0-9]?\.//;	# remove www
+			trim_url($_);
 			$digest = substr(md5_base64($_), 0, $md5length);
 			$seen_hostnames{$digest} = ();	# = $_
 		}
@@ -195,7 +194,8 @@ if (-e $todo) {
 		($scheme, $auth, $path, $query, $frag) = uri_split($_);
 		next if ($auth !~ m/\./);	# || ($scheme =~ m/^ftp/) : the scheme should be already checked
 		$red_uri = $auth;
-		$red_uri =~ s/^www[0-9]?\.//;
+		#$red_uri =~ s/^www[0-9]?\.//;
+		$_ =~ s/^(www)[0-9]+?(\.)/$1$2/;	# remove digits after www
 		
 		# no https support wanted
 		#if ($_ =~ m/^https:\/\//) {
@@ -203,11 +203,19 @@ if (-e $todo) {
 		#}
 
 		# without query ? necessary elements might be lacking
-		$ext_uri = uri_join($scheme, $auth, $path);
+		if (defined $query) {
+			if ( ($query =~ /page=/) || ($query =~ /p=/) || ($query =~ /id=/) || ($query =~ /category=/) ) {
+				$ext_uri = uri_join($scheme, $auth, $path, $query);
+			}
+			else {
+				$ext_uri = uri_join($scheme, $auth, $path);
+			}
+		}
+		else {
+			$ext_uri = uri_join($scheme, $auth, $path);
+		}
 		# spare memory space ?
-		$ext_uri =~ s/\/$//;			# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
-		$ext_uri =~ s/^http:\/\///;		# remove protocol
-		$ext_uri =~ s/^https:\/\///;	
+		trim_url($ext_uri);
 		
 		## find out if the url has already been stored (do this before in a separate script ?)
 		# second part : if the hostname differs just by one last character (??)
@@ -351,7 +359,9 @@ open (my $urlbuffer, '>', $urlseen_bufferfile) or die "Cannot open URL-SEEN-BUFF
 
 # print the hostnames hash in a temporary buffer to clear the values from memory
 while ( my ($j, $k) = each %hostnames ) {
-	print $urlbuffer "$j\t$k\n";
+	{ no warnings 'uninitialized';
+		print $urlbuffer "$j\t$k\n";
+	}
 }
 while ( my ($j, $k) = each %hostnames ) {
 	{ no warnings 'uninitialized';
@@ -377,6 +387,16 @@ foreach my $url (@urls) {
 
 
 # SUBROUTINES
+
+# trim URLs (unified processing)
+sub trim_url {
+	my $url = shift;
+	$url =~ s/\/$//;			# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
+	$url =~ s/^https?:\/\///;		# remove protocol
+	# $_ =~  s/^www[0-9]?\.//;		# remove www
+	$url =~ s/^(www)[0-9]+?(\.)/$1$2/;	# remove digits after www
+	return $url;
+}
 
 # URL processing subroutine
 sub process_url {
@@ -614,11 +634,20 @@ sub fetch_url {
 			$suspicious = 1;
 		}
 
+		# round the confidence
+		unless ($confidence eq "1.0") {
+			$confidence = sprintf ("%.3f", $confidence);
+		}
+		else {
+			$confidence = "1";
+		}
+
+
 		## INFOS (section recently added)
 		# digest
 		my $final_digest = substr(md5_base64($final_red), 0, $md5length);
 		if ($final_red eq $finaluri) {
-			print $urldict $final_digest . "\t" . $final_red . "\tø\n";
+			print $urldict $final_digest . "\t" . $final_red . "\t0\n";
 		}
 		else {
 			print $urldict $final_digest . "\t" . $final_red . "\t" . $finaluri . "\n";
@@ -653,7 +682,7 @@ sub fetch_url {
 		}
 		# default if no date
 		else {
-			$httplast = "ø";
+			$httplast = "0";
 		}
 
 		# domain name
@@ -701,11 +730,13 @@ sub fetch_url {
 			## extensions
 			if ($testurl !~ m/\.atom$|\.json$|\.css$|\.xml$|\.js$|\.jpg$|\.jpeg$|\.png$|\.gif$|\.tiff$|\.pdf$|\.ogg$|\.mp3$|\.m4a$|\.aac$|\.avi$|\.mp4$|\.mov$|\.webm$|\.flv$|\.ico$|\.pls$|\.zip$|\.tar$|\.gz$|\.iso$|\.swf$/io) {
 			## not wanted
-			if ($testurl !~ m/^http:\/\/add?s?\.|^http:\/\/banner\.|tradedoubler\.com|livestream|live\.|videos\.|feed$|rss$/io) {
+			if ($testurl !~ m/^http:\/\/add?s?\.|^http:\/\/banner\.|doubleclick|tradedoubler\.com|livestream|live\.|videos?\.|feed$|rss$/io) {
 			## frequent hostnames with nearly no text
-			if ($testurl !~ m/last\.fm|soundcloud\.com|youtube\.com|youtu\.be|vimeo\.com|instagr\.am|instagram\.com|imgur\.com|flickr\.com|google\.|twitter\.com|twitpic\.com|gravatar\.com/io) {
+			if ($testurl !~ m/last\.fm|soundcloud\.com|youtube\.com|youtu\.be|vimeo\.com|instagr\.am|instagram\.com|imgur\.com|flickr\.com|google\.|twitter\.com|twitpic\.com|gravatar\.com|akamai\.net|amazon\.com|cloudfront\.com/io) {
 			## media queries
 			if ($testurl !~ m/\.jpg[&?]|\.jpeg[&?]|\.png[&?]|\.gif[&?]|\.pdf[&?]|\.ogg[&?]|\.mp3[&?]|\.avi[&?]|\.mp4[&?]/io) {
+			## (basic) adult spam filter
+			# if ( ($testurl !~ m/[\.\/]sex|[\.\/-](adult|porno?|cash|xxx|fuck)/io) && ($testurl !~ m/(sex|adult|porno?|cams|cash|xxx|fuck)[\.\/-]/io) && ($testurl !~ m/gangbang|incest/io) && ($testurl !~ m/[\.\/-](ass|sex)[\.\/-]/io) ) {
 
 				# find the outlinks
 				$uri = URI->new( $testurl );
@@ -729,11 +760,11 @@ sub fetch_url {
 		@outlinks = grep { ! $seen{ $_ }++ } @outlinks;
 		# hash the links and add them to the dictionary : filter them before ?
 		foreach my $inlink (@outlinks) {
-			print $urldict substr(md5_base64($inlink), 0, $md5length) . "\t" .  $inlink . "\tø\n";
+			print $urldict substr(md5_base64($inlink), 0, $md5length) . "\t" .  $inlink . "\t0\n";
 		}
 		foreach my $outlink (@outlinks) {
 			my $tempoutdig = substr(md5_base64($outlink), 0, $md5length);
-			print $urldict $tempoutdig . "\t" .  $outlink . "\tø\n";
+			print $urldict $tempoutdig . "\t" .  $outlink . "\t0\n";
 			print $urlcouples $final_digest . "\t" . $tempoutdig . "\n";
 		}
 
@@ -742,6 +773,14 @@ sub fetch_url {
 		## unicode flag, does not work before Perl 5.14 : my $nwords = () = $clean_text =~ /\w+ /giu;
 		# my $nwords = () = $clean_text =~ /\p{L}+ |\p{L}+\p{P}|\p{L}+$/gi;
 		my $nwords = () = $clean_text =~ /\b\p{L}+\b|\b\p{L}+\p{P}\b/gi;
+		## Unicode version (Perl 5.14 minimum)
+		my $nwords_u;
+		try {
+			$nwords_u = () = $clean_text =~ /\w+\b/giu;
+		}
+		catch {
+			$nwords_u = "0";
+		}
 
 		# output string
 		my $output_result;

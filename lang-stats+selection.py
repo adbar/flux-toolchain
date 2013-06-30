@@ -169,9 +169,9 @@ if options.lcodes is not None:
 					#	print (key, ipdict[key])
 				else:
 					if options.outputfile is not None:
-						out.write(firstinfo + '\t' + code + '\t' + urld[key] + '\t' + intd[key] + '\n')
+						out.write(firstinfo + '\n')
 					else:
-						print (firstinfo, code, urld[key], intd[key], sep='\t')
+						print (firstinfo)
 	# print the sample
 	if options.sample is not None:
 		# ensure the dictionary is long enough

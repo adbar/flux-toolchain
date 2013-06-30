@@ -9,8 +9,8 @@
 
 ## example of use:
 ## (python langid.py -s --host=localhost -l en,cs,de,sk,fr,pl,it,es,ja,nl,ru,he,hu,sl,hr,pt,sv,fi,et,no,lt,da,ro,bs,tr,ar,ka,ca,el,uk,is,bg,lv,vi,sw,sr,eo,nb,ga,eu &> lang-id.log &)
-## (bash langcheck_threads.sh list-of-links 50000 6 &> logfile.log &)
-## all links : (bash langcheck_threads.sh list-of-links 0 10 &> logfile.log &)
+## (bash langcheck_threads.sh list-of-links 50000 6 SOURCE1 &> logfile.log &)
+## all links : (bash langcheck_threads.sh list-of-links 0 10 SOURCE1 &> logfile.log &)
 
 
 
@@ -24,9 +24,9 @@
 # url-dict-seen vs. url-dict-done...
 
 
-if (($# < 3)) || (($# > 4))
+if (($# < 4)) || (($# > 5))
 then
-	echo "Usage : [list of urls] [number of requests] [number of threads] [seen urls file (optional)]"
+	echo "Usage : [list of urls] [number of requests] [number of threads] [source] [seen urls file (optional)]"
 	exit 1
 fi
 
@@ -39,6 +39,7 @@ fi
 listfile=$1
 req=$2
 num_files=$3
+source=$4
 
 
 # Existing files check
@@ -73,16 +74,6 @@ echo -e "Total lines after uniq : "$(wc -l ${TMP1} | cut -d " " -f1)
 
 
 # Remove the unsafe/unwanted urls
-if [ ! -f clean_urls.py ];
-then
-	echo "File clean_urls.py not found"
-	exit 0
-fi
-if [ ! -f spam-domain-blacklist ];
-then
-	echo "Spam domains list not found"
-	exit 0
-fi
 python clean_urls.py -i $TMP1 -o cleaned-url-list -l spam-domain-blacklist -s SPAM2 --adult-filter
 listfile="cleaned-url-list"
 #mv $TMP1 $listfile
@@ -122,20 +113,22 @@ do
 
 	# port check
 	port="9008"
-	if (($i % 2 == 0))
-	then
-		if nc -vz localhost 9009 &> /dev/null
-		then
-			port="9009"
-		fi
-	fi
 	if (($i % 3 == 0))
 	then
 		if nc -vz localhost 9010 &> /dev/null
 		then
 			port="9010"
 		fi
+	else
+		if (($i % 2 == 0))
+		then
+			if nc -vz localhost 9009 &> /dev/null
+			then
+				port="9009"
+			fi
+		fi
 	fi
+	
 
 	# prepend "0" to match split results
 	if (($i < 10))
@@ -147,13 +140,13 @@ do
 
 	# launch the script
 	# rsl = raw-size-limit | csl = clean-size-limit
-	if (($# == 4))
+	if (($# == 5))
 	then
-		perl fetch+lang-check.pl -t 12 --port $port --seen $4 --hostreduce --all --filesuffix $j --rsl 1200 --csl 1000 $f &
+		perl fetch+lang-check.pl -t 12 --port $port --seen $5 --hostreduce --all --filesuffix $j --source $source --rsl 1000 --csl 1000 $f &
 	else
-		perl fetch+lang-check.pl -t 12 --port $port --hostreduce --all --filesuffix $j --rsl 1200 --csl 1000 $f &
+		perl fetch+lang-check.pl -t 12 --port $port --hostreduce --all --filesuffix $j --source $source --rsl 1000 --csl 1000 $f &
 	fi
-	sleep 2
+	sleep 5	# was 2
 	((i++))
 
 done
@@ -208,8 +201,9 @@ mv $TMP1 TODO
 
 
 # Backup the final result
-tar -cjf backup.tar.bz2 RESULTS TO-CHECK TODO URL-DICT URL-COUPLES URL-SEEN
+tar -cjf backup.tar.bz2 RESULTS TO-CHECK TODO URL-DICT URL-COUPLES URL-SEEN SPA* *RRORS
 
 # Clean up
+rm URL-SEEN-BUFFER.*
 # rm BAD-HOSTS ERRORS LINKS-TODO-redchecked LOG RED-LINKS-TODO RESULTS SPAM1 SPAM2 TO-CHECK TODO URL-COUPLES URL-DICT cleaned-url-list fs.log red-ERRORS rr.log URL-SEEN URL-SEEN-BUFFER.*
 # rm spam-domain-blacklist

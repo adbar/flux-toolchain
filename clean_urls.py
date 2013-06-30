@@ -41,11 +41,10 @@ if options.inputfile is None or options.outputfile is None:
 # avoid getting trapped
 protocol = re.compile(r'^http')
 extensions = re.compile(r'\.atom$|\.json$|\.css$|\.xml$|\.js$|\.jpg$|\.jpeg$|\.png$|\.gif$|\.tiff$|\.pdf$|\.ogg$|\.mp3$|\.m4a$|\.aac$|\.avi$|\.mp4$|\.mov$|\.webm$|\.flv$|\.ico$|\.pls$|\.zip$|\.tar$|\.gz$|\.iso$|\.swf$', re.IGNORECASE)
-notsuited = re.compile(r'^http://add?s?\.|^http://banner\.|tradedoubler\.com|livestream|live\.|videos?\.|feed$|rss$', re.IGNORECASE)
+notsuited = re.compile(r'^http://add?s?\.|^http://banner\.|doubleclick|tradedoubler\.com|livestream|live\.|videos?\.|feed$|rss$', re.IGNORECASE)
 mediaquery = re.compile(r'\.jpg[&?]|\.jpeg[&?]|\.png[&?]|\.gif[&?]|\.pdf[&?]|\.ogg[&?]|\.mp3[&?]|\.avi[&?]|\.mp4[&?]', re.IGNORECASE)
 # avoid these websites
-hostnames_filter = re.compile(r'last\.fm|soundcloud\.com|youtube\.com|youtu\.be|vimeo\.com|instagr\.am|instagram\.com|imgur\.com|flickr\.com|google\.|twitter\.com|twitpic\.com|gravatar\.com', re.IGNORECASE)
-# akamai.net
+hostnames_filter = re.compile(r'last\.fm|soundcloud\.com|youtube\.com|youtu\.be|vimeo\.com|instagr\.am|instagram\.com|imgur\.com|flickr\.com|google\.|twitter\.com|twitpic\.com|gravatar\.com|akamai\.net|amazon\.com|cloudfront\.com', re.IGNORECASE)
 
 
 
@@ -128,12 +127,16 @@ for line in sourcefile:
 				# https
 				candidate = candidate.replace('^https', 'http')				
 				# domain spam check
-				if 'spamset' in globals():
-					domain = urlparse(candidate).netloc
-					if domain in spamset:
-						passing_test = 0
+				try:
+					if 'spamset' in globals():
+						domain = urlparse(candidate).netloc
+						if domain in spamset:
+							passing_test = 0
+				except ValueError:
+					passing_test = 0
 				## (basic) adult spam filter
 				if options.adultfilter is True:
+					#if re.search(r'[\./]sex|[\./-](adult|porno?|cash|xxx|fuck)', candidate) or re.search(r'(sex|adult|porno?|cams|cash|xxx|fuck)[\./-]', candidate) or re.search(r'gangbang|incest', candidate) or re.search(r'[\./-](ass|sex)[\./-]', candidate):
 					if re.search(r'[\./_-](porno?|xxx)', line.lower()) or re.search(r'(cams|cash|porno?|sex|xxx)[\./_-]', line.lower()) or re.search(r'gangbang|incest', line.lower()) or re.search(r'[\./_-](adult|ass|sex)[\./_-]', line.lower()):
 						passing_test = 0
 		

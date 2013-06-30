@@ -5,6 +5,8 @@
 ###	Copyright (C) Adrien Barbaresi, 2012.
 ###	The Microblog-Explorer is freely available under the GNU GPL v3 license (http://www.gnu.org/licenses/gpl.html).
 
+# EXAMPLE: perl extract-urls.pl -c total-url-couples -d total-dictionary -r total-clean -o testout -l fr &
+
 
 use strict;
 use warnings;
@@ -80,4 +82,3 @@ while (<$input3>) {
 
 close($input3);
 close($output);
-
