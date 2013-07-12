@@ -67,9 +67,9 @@ if options.spamlistfile is not None:
         except ValueError:
             print('Length of the spam list:', len(spamset))
     except IOError:
-        print('Could not open the file containing the spam-list:', options.spamlistfile, '\nThe URLs will not be checked for spam.')
+        print('Could not open the file containing the spam reference list:', options.spamlistfile, '\nThe URLs will not be checked for spam.')
 else:
-    print('No spam-list given, the URLs will not be checked for spam.')
+    print('No spam reference list given, the URLs will not be checked for spam.')
 
 
 # Open source and destination files
@@ -77,14 +77,14 @@ filename = options.inputfile
 if options.path is not None:
     filename = options.path + filename
 try:
-    sourcefile = open(options.inputfile, 'r')
+    sourcefile = open(filename, 'r')
 except IOError:
     sys.exit("Could not open the input file.")
 
 # fall-back if there is nowhere to write the urls seen as spam
 if options.spamurls is None:
     options.spamurls = options.inputfile + '_spam-detected-urls'
-    print('No spam-tagged file given, defaulting to', options.spamurls)
+    print('No file name given for the urls classified as spam, defaulting to', options.spamurls)
 
 
 # write/append to files
@@ -94,7 +94,7 @@ def append_to_file(filename, listname):
     try:
         out = open(filename, 'a')
     except IOError:
-        sys.exit ('could not open output file: ' + filename)
+        sys.exit ('Could not open output file: ' + filename)
     for link in listname:
         out.write(str(link) + "\n")
     out.close()
@@ -161,7 +161,7 @@ for line in sourcefile:
         if len(nonspam) > 10000 or len(spamurls) > 10000:
             append_to_file(options.outputfile, nonspam)
             append_to_file(options.spamurls, spamurls)
-            nonspam, usersdone = (list() for i in range(2))
+            nonspam, spamurls = (list() for i in range(2))
 
 
 # print the rest
@@ -170,11 +170,11 @@ append_to_file(options.spamurls, spamurls)
 
 # print final results
 ## http://docs.python.org/library/string.html#format-specification-mini-language
-## '{} format' not supported before Python 2.7
 try:
     print('Total URLs seen: {:,}' . format(total_urls))
     print('Total URLs dropped: {:,}' . format(dropped_urls))
     print('Ratio: {0:.2f}' . format((dropped_urls/total_urls)*100), '%')
+## '{} format' not supported before Python 2.7
 except ValueError:
     print('Total URLs seen:', total_urls)
     print('Total URLs dropped:', dropped_urls)    #'Total URLs dropped: %d'
