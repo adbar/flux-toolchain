@@ -1,16 +1,32 @@
 Filtering and Language-identification for URL Crawling Seeds (FLUCS) a.k.a. FLUX-Toolchain
-------------------------------------------------------------------------------------------
+=================================================================================
+
 
 **The language-identification scripts are to be used with the [langid.py language identification system](https://github.com/saffsd/langid.py).**
 
 The scripts are still under development, they work but may not be optimized yet. They are tested on UNIX (Debian flavors), they should work on other UNIX-like systems provided the modules needed are installed.
 
-Scientific paper: Adrien Barbaresi. 2013. Crawling microblogging services to gather language-classified URLs. Workflow and case study. In *Proceedings of ACL Student Research Workshop*, Sofia. To appear.
+Scientific paper: Adrien Barbaresi. 2013. [Crawling microblogging services to gather language-classified URLs. Workflow and case study.](http://halshs.archives-ouvertes.fr/docs/00/84/08/61/PDF/ABarbaresi_ACL-SRW_13_final.pdf) In *Proceedings of ACL Student Research Workshop*, Sofia. To appear.
 
 Copyright (C) Adrien Barbaresi, 2012-2013.
 
 
-### [langid.py](https://github.com/saffsd/langid.py) server
+Installation
+-----------
+
+Recommandations for the Debian/Ubuntu systems (probably useful for other Linux distributions):
+
+* Make sure you have following packages installed (Perl modules): *libhtml-clean-perl libhtml-strip-perl libstime-piece-perl libtry-tiny-perl*
+
+* A few scripts can use both the default library (LWP, possibly slower) or [FURL](http://search.cpan.org/~tokuhirom/Furl-2.17/), a faster alternative. This Perl module is not installed by default (`install Furl` in CPAN). The scripts detect which module is available.
+
+* Perl and Python versions: FLUX should work with Perl 5.10 but will work better with 5.14 or 5.16 (mainly because of Unicode support). The scripts were written with Python 2.6 and 2.7 in mind. As is, they won't work with Python 3, but a move in that direction should take place soon.
+
+
+Using FLUX
+---------
+
+### [langid.py](https://github.com/saffsd/langid.py) server configuration
 
 The langid.py server can be started as follows:
 
@@ -87,7 +103,7 @@ Wiki-friendly output: -w option.
 
 
 Related Projects
---------------
+---------------
 
 For upstream applications:
 

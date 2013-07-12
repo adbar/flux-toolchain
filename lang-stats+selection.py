@@ -25,6 +25,7 @@ parser.add_option("-o", "--output-file", dest="outputfile", help="output file na
 parser.add_option("-w", "--wiki-friendly", dest="wikifriendly", default=False, action="store_true", help="wiki-friendly output (table format)")
 parser.add_option("-d", "--dictionary", dest="dictionary", help="name of the dictionary file", metavar="FILE")
 parser.add_option("-s", "--sample", dest="sample", help="number of sample urls of the chosen language-codes")
+# parser.add_option("-p", "--path", dest="path", help="path to the files")
 
 options, args = parser.parse_args()
 
@@ -40,13 +41,8 @@ if options.sample is not None:
 
 
 ## Initialize
-langd = defaultdict(int)
-urld = defaultdict(int)
-intd = defaultdict(int)
-codes = dict()
-ipdict = dict()
-presample = dict()
-sample = dict()
+langd, urld, intd = (defaultdict(int) for i in range(3))
+codes, ipdict, presample, sample = (dict() for i in range(4))
 
 
 # Load the language codes dictionary
