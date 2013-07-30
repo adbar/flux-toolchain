@@ -67,9 +67,9 @@ catch {
 
 
 # command-line options
-my ($help, $seen, $hostreduce, $fileprefix, $filesuffix, $links_count, $put_ip, $port, $timeout, $all_links, $raw_size_limit, $clean_size_limit);
+my ($help, $seen, $hostreduce, $fileprefix, $filesuffix, $links_count, $put_ip, $port, $timeout, $all_links, $raw_size_limit, $clean_size_limit, $source, $sleep);
 usage() if ( @ARGV < 1
-	or ! GetOptions ('help|h' => \$help, 'putip|ip=s' => \$put_ip, 'port|p=i' => \$port, 'timeout|t=i' => \$timeout, 'seen|s=s' => \$seen, 'fileprefix|fp=s' => \$fileprefix, 'filesuffix|fs=s' => \$filesuffix, 'hostreduce|hr' => \$hostreduce, 'all|a' => \$all_links, 'links|l=i' => \$links_count, 'rsl=i' => \$raw_size_limit, 'csl=i' => \$clean_size_limit)
+	or ! GetOptions ('help|h' => \$help, 'putip|ip=s' => \$put_ip, 'port|p=i' => \$port, 'timeout|t=i' => \$timeout, 'seen=s' => \$seen, 'fileprefix|fp=s' => \$fileprefix, 'filesuffix|fs=s' => \$filesuffix, 'hostreduce|hr' => \$hostreduce, 'all|a' => \$all_links, 'links|l=i' => \$links_count, 'rsl=i' => \$raw_size_limit, 'csl=i' => \$clean_size_limit, 'source|s=s' => \$source, 'sleep=f' => \$sleep)
 	or defined $help
 	or (defined $all_links && defined $links_count)
 );
@@ -85,7 +85,9 @@ sub usage {
 	print "suffix : all the same\n";
 	print "EITHER --all OR a given number of links\n";
 	print "hostreduce : keep only the hostname & evt. a random full URL for each hostname\n";
-	print "raw and clean size limits : text length before and after HTML stripping (default: 1000 and 500)\n\n";
+	print "raw and clean size limits : text length before and after HTML stripping (default: 1000 and 500)\n";
+	print "source : indicate the source (printed as is as a column of the output file)\n";
+	print "sleep : time between two requests (can be a floating point value)\n\n";
 	exit;
 }
 
@@ -105,16 +107,16 @@ if (!defined $raw_size_limit) {
 	$raw_size_limit = 1000;
 }
 if (!defined $clean_size_limit) {
-	$clean_size_limit = 500;
+	$clean_size_limit = 1000;
 }
 ## set alarm accordingly
 my $alarm_timeout = 20 + $timeout;
 
 ## Agent here
-my $agent = "FLUX-Toolchain/0.4";
+my $agent = "FLUX-Toolchain/0.5";
 
 ## MD5 digest length
-my $md5length = 12; # enough below at least 200 millions of URLs
+my $md5length = 12;	# enough below at least 200 millions of URLs
 
 
 ## Most global variables here
@@ -349,7 +351,7 @@ $lwp_ua->timeout($timeout);
 
 # MAIN LOOP
 
-my ($stack, $visits, $i, $suspcount, $skip, $url_count) = (0) x 6;
+my ($tried_urls, $visits, $successes, $suspcount, $skip, $errors, $dropped) = (0) x 7;
 
 open (my $out_fh, '>>', $done) or die "Cannot open RESULTS file : $!\n";
 open (my $check_again_fh, '>>', $tocheck) or die "Cannot open TO-CHECK file : $!\n";
@@ -370,19 +372,20 @@ while ( my ($j, $k) = each %hostnames ) {
 }
 
 
-# main instructions
-foreach my $url (@urls) {
+## MAIN  instructions
+
+foreach my $loopvar (1 .. scalar(@urls)) {
+#foreach my $url (@urls) {
 	# end the loop if the given number of urls was reached
 	if (defined $links_count) {
-		last if ($stack == $links_count);
+		last if ($tried_urls == $links_count);
 	}
 	# end the loop if there is no server available
 	last if ($skip == 1);
 
 	# try to fetch and to send the page
-	$url_count++;
+        my $url = shift @urls;
 	process_url($url);
-	## undef ?
 }
 
 
@@ -390,12 +393,12 @@ foreach my $url (@urls) {
 
 # trim URLs (unified processing)
 sub trim_url {
-	my $url = shift;
-	$url =~ s/\/$//;			# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
-	$url =~ s/^https?:\/\///;		# remove protocol
+	my $url_string = shift;
+	$url_string =~ s/\/$//;			# avoid duplicates like www.mestys-starec.eu and www.mestys-starec.eu/
+	$url_string =~ s/^https?:\/\///;		# remove protocol
 	# $_ =~  s/^www[0-9]?\.//;		# remove www
-	$url =~ s/^(www)[0-9]+?(\.)/$1$2/;	# remove digits after www
-	return $url;
+	$url_string =~ s/^(www)[0-9]+?(\.)/$1$2/;	# remove digits after www
+	return $url_string;
 }
 
 # URL processing subroutine
@@ -438,7 +441,7 @@ sub lock_and_write {
 # fetch and send URL
 sub fetch_url {
 	my $finaluri = shift;
-	$stack++;
+	$tried_urls++;
 	unless ($finaluri =~ m/^http/) {
 		$finaluri = "http://" . $finaluri; # consequence of sparing memory space
 	}
@@ -461,6 +464,12 @@ sub fetch_url {
   	$res = $lwp_ua->request($req);
 	if ($res->is_success) {
 		$visits++;
+
+                # SLEEP HERE
+                if (defined $sleep) {
+	            sleep($sleep);
+                }
+
 		# check if the request was redirected to a URL that has already been seen
 		$final_red = $res->request()->uri();
 		($scheme, $auth, $path, $query, $frag) = uri_split($final_red);
@@ -483,6 +492,7 @@ sub fetch_url {
 
 		if (exists $seen_hostnames{$digest}) {
 			alarm 0;
+                        $dropped++;
 			die "Dropped (redirect in the 'seen' file):\t" . $finaluri;
 		}
 
@@ -504,6 +514,7 @@ sub fetch_url {
 		if ($testheaders->content_length) {
 			if ($testheaders->content_length > 1000000) { # was 500000, too low
 				alarm 0;
+                                $dropped++;
 				die "Dropped (by content-size):\t" . $finaluri;
 			}
 		}
@@ -514,6 +525,7 @@ sub fetch_url {
 			# user-defined raw text size
 			if ($length_a < $raw_size_limit) {
 				alarm 0;
+                                $dropped++;
 				die "Dropped (by html size):\t\t" . $finaluri;
 			}
 			my $h = new HTML::Clean(\$body);
@@ -528,12 +540,14 @@ sub fetch_url {
 			# user-defined clean text size
 			if ($length_b < $clean_size_limit) {
 				alarm 0;
+                                $dropped++;
 				die "Dropped (by clean size):\t" . $finaluri;
 			}
 		}
 	}
 	else {
 		alarm 0;
+                $errors++;
 		die "Dropped (no response):\t\t" . $finaluri;
 	}
 	} # end of try
@@ -782,9 +796,11 @@ sub fetch_url {
 			$nwords_u = "0";
 		}
 
+		# text hash to ensure texts are unique
+		my $textdigest = substr(md5_base64($text), 0, $md5length);
+
 		# output string
-		my $output_result;
-		$output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast;
+		my $output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast . "\t" . $textdigest . "\t" . $nwords_u . "\t" . $source;
 
 		# counters and printers
 		if ($suspicious == 1) {
@@ -793,7 +809,7 @@ sub fetch_url {
 			#lock_and_write($check_again_fh, $output_result, $tocheck);
 		}
 		else {
-			$i++;
+			$successes++;
 			print $out_fh $output_result . "\n";
 			#lock_and_write($out_fh, $output_result, $done);
 		}
@@ -802,6 +818,7 @@ sub fetch_url {
 		alarm 0;
 		die "Dropped (not found):\t" . $finaluri;
 	}
+
 	return;
 } # end of subroutine
 
@@ -814,11 +831,6 @@ close($log);
 
 
 ## THE END
-
-# no server found option
-unless ($skip == 1) {
-	splice(@urls, 0, $url_count);
-}
 
 # rest of the todo links (can be 0)
 open (my $ltodo, '>', $todo);
@@ -849,10 +861,16 @@ close ($final_buffer);
 if (defined $filesuffix) {
 	print "### thread number:\t" . $filesuffix . "\n";
 }
-print "seen:\t\t" . $url_count . "\n";
-print "tried:\t\t" . $stack . "\n";
+print "## END of processing\n";
+print "tried:\t\t" . $tried_urls . "\n";
 print "visited:\t" . $visits . "\n";
-print "positive:\t" . $i . "\n";
+print "errors:\t\t" . $errors . "\n";
+print "----------\n";
+print "positive:\t" . $successes . "\n";
 print "suspicious:\t" . $suspcount . "\n";
-my $end_time = time();
-print "execution time:\t" . sprintf("%.2f\n", $end_time - $start_time);
+print "dropped:\t" . $dropped . "\n";
+print "----------\n";
+my $total_time = time() - $start_time;
+print "exec. time:\t" . sprintf("%.2f\n", $total_time);
+print "secs per try:\t" . sprintf("%.2f\n", ( $total_time / $visits ));
+print "secs per pos.:\t" . sprintf("%.2f\n", ( $total_time / $successes ));
