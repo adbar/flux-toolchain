@@ -1,14 +1,11 @@
 Filtering and Language-identification for URL Crawling Seeds (FLUCS) a.k.a. FLUX-Toolchain
 =================================================================================
 
+FLUX has already been used in production (see [publications](#Publications)).
 
-**The language-identification scripts are to be used with the [langid.py language identification system](https://github.com/saffsd/langid.py).**
+The scripts are tested on UNIX (Debian flavors), they should work on other UNIX-like systems provided the modules needed are installed (see [installation](#Installation)).
 
-The scripts are still under development, they work but may not be optimized yet. They are tested on UNIX (Debian flavors), they should work on other UNIX-like systems provided the modules needed are installed.
-
-Scientific paper: Adrien Barbaresi. 2013. [Crawling microblogging services to gather language-classified URLs. Workflow and case study.](http://halshs.archives-ouvertes.fr/docs/00/84/08/61/PDF/ABarbaresi_ACL-SRW_13_final.pdf) In *Proceedings of ACL Student Research Workshop*, Sofia. To appear.
-
-Copyright (C) Adrien Barbaresi, 2012-2013.
+Copyright (C) Adrien Barbaresi, 2012-2015.
 
 
 Installation
@@ -16,11 +13,13 @@ Installation
 
 Recommandations for the Debian/Ubuntu systems (probably useful for other Linux distributions):
 
-* Make sure you have following packages installed (Perl modules): *libhtml-clean-perl libhtml-strip-perl libstime-piece-perl libtry-tiny-perl*
+* Make sure you have following packages installed (Perl modules): *libhtml-clean-perl libhtml-strip-perl libstime-piece-perl libtry-tiny-perl libdevel-size-perl*
 
 * A few scripts can use both the default library (LWP, possibly slower) or [FURL](http://search.cpan.org/~tokuhirom/Furl-2.17/), a faster alternative. This Perl module is not installed by default (`install Furl` in CPAN). The scripts detect which module is available.
 
-* Perl and Python versions: FLUX should work with Perl 5.10 but will work better with 5.14 or 5.16 (mainly because of Unicode support). The scripts were written with Python 2.6 and 2.7 in mind. As is, they won't work with Python 3, but a move in that direction should take place soon.
+* Perl and Python versions: FLUX should work with Perl 5.10 but will work better with 5.14 or 5.16 (mainly because of Unicode support). The scripts were written with Python 2.6 and 2.7 in mind. As is, they won't work with Python 3.
+
+**The language-identification scripts are to be used with the [langid.py language identification system](https://github.com/saffsd/langid.py).**
 
 
 Using FLUX
@@ -101,6 +100,23 @@ Getting the statistics as well as a prompt of the languages to select and store 
 
 Wiki-friendly output: -w option.
 
+The `advanced-stats.py` script shows how to extract and group specific information from the URL directory.
+
+
+### Extraction of words from the Wiktionary
+
+The `wikt-markers.py` script allows for the extraction of discourse and temporal markers in multiple languages from the Wiktionary. This feature is still experimental, but it can be used by FLUX to get more targeted information about the content.
+
+
+Publications
+------------
+
+- Barbaresi, A. (2013). [Challenges in web corpus construction for low-resource languages in a post-BootCaT world.](https://hal.archives-ouvertes.fr/halshs-00919410v2/document) In Z. Vetulani & H. Uszkoreit (Eds.), *Proceedings of the 6th language & technology conference, less resourced languages special track* (pp. 69–73). Poznań.
+- Barbaresi, A. (2013). [Crawling microblogging services to gather language-classified URLs.](https://hal.archives-ouvertes.fr/halshs-00840861v2/document) Workflow and case study. In *Proceedings of the 51th Annual Meeting of the ACL, Student Research Workshop* (pp. 9–15).
+- Barbaresi, A. (2014). [Finding Viable Seed URLs for Web Corpora: A Scouting Approach and Comparative Study of Available Sources.](https://hal.archives-ouvertes.fr/halshs-00986144/document) In R. Schäfer & F. Bildhauer (Eds.), *Proceedings of the 9th web as corpus workshop* (pp. 1–8).
+- Schäfer, R., Barbaresi, A., & Bildhauer, F. (2014). [Focused Web Corpus Crawling.](https://hal.archives-ouvertes.fr/hal-01095924/document) In F. Bildhauer & R. Schäfer (Eds.), *Proceedings of the 9th Web as Corpus workshop* (pp. 9–15).
+- Barbaresi, A. (2015). [Ad hoc and general-purpose corpus construction from web sources](https://hal.archives-ouvertes.fr/tel-01167309/document), PhD thesis, ENS Lyon.
+
 
 Related Projects
 ---------------
@@ -110,5 +126,3 @@ For upstream applications:
 * [Microblog Explorer](https://github.com/adbar/microblog-explorer) (gather links from social networks)
 
 * [URL compressor](https://github.com/adbar/url-compressor)
-
-Other crawling projects are hosted on [Google Code](http://code.google.com/u/adrien.barbaresi/).

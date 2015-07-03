@@ -41,6 +41,7 @@ else:
 
 ##
 inputwords = list()
+suggestions = list()
 ## language codes
 problems = ['de', 'tr']
 
@@ -150,7 +151,7 @@ def findtrans(sourcehtml):
 # Append to a file
 def writefile(filename, listname):
 	try:
-		out = open(filename, 'w')
+		out = open(filename, 'a')
 	except IOError:
 		sys.exit("could not open output file")
 	for element in listname:
@@ -175,7 +176,7 @@ for iw in inputwords:
 			m = re.search(r'<a.+?>([A-Za-z ]+)</a>', suggestion)
 			if m:
 				sword = m.group(1)
-				if sword not in inputwords:
+				if sword not in inputwords and sword not in suggestions:
 					mbis = re.search(r'<a href="([A-Za-z_/-]+?)"', suggestion)
 					if mbis:
 						compurl = 'http://en.wiktionary.org' + mbis.group(1)
@@ -184,6 +185,7 @@ for iw in inputwords:
 						if options.separated is False:
 							outputfile.write("\n### " + sword + " (S)\n")
 						findtrans(sourcehtml)
+					suggestions.append(sword)
 
 	# do not hammer the server
 	time.sleep(1)
