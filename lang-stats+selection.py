@@ -2,8 +2,8 @@
 
 
 ###	This script is part of the FLUX Toolchain project (https://github.com/adbar/flux-toolchain).
-###	Copyright (C) Adrien Barbaresi, 2012.
-###	The Microblog-Explorer is freely available under the GNU GPL v3 license (http://www.gnu.org/licenses/gpl.html).
+###	Copyright (C) Adrien Barbaresi, 2014.
+###	The FLUX Toolchain is freely available under the GNU GPL v3 license (http://www.gnu.org/licenses/gpl.html).
 
 # This script is to be used with the output of a language identification system (https://github.com/saffsd/langid.py).
 

@@ -3,7 +3,7 @@
 
 ###	This script is part of the FLUX Toolchain project (https://github.com/adbar/flux-toolchain).
 ###	Copyright (C) Adrien Barbaresi, 2012.
-###	The Microblog-Explorer is freely available under the GNU GPL v3 license (http://www.gnu.org/licenses/gpl.html).
+###	The FLUX Toolchain is freely available under the GNU GPL v3 license (http://www.gnu.org/licenses/gpl.html).
 
 
 use strict;
@@ -28,14 +28,16 @@ use Socket;
 use Digest::MD5 qw(md5_base64);
 use Time::Piece;
 
+use Devel::Size qw(size total_size);
+
 
 # test for Furl, use LWP as a fallback
 my $furl_loaded = 1;
 try {
-	require Furl;
+    require Furl;
 }
 catch {
-	$furl_loaded = 0;
+    $furl_loaded = 0;
 }
 
 
@@ -64,12 +66,14 @@ catch {
 # performance test for marker detection
 # improve url seen buffer # url buffer, what for ?
 # unicode chars handling in put request
+# LWP Curl / HTTP Lite
+
 
 
 # command-line options
-my ($help, $seen, $hostreduce, $fileprefix, $filesuffix, $links_count, $put_ip, $port, $timeout, $all_links, $raw_size_limit, $clean_size_limit, $source, $sleep);
+my ($help, $seen, $hostreduce, $fileprefix, $filesuffix, $links_count, $put_ip, $port, $timeout, $all_links, $raw_size_limit, $clean_size_limit, $markers, $source, $sleep);
 usage() if ( @ARGV < 1
-	or ! GetOptions ('help|h' => \$help, 'putip|ip=s' => \$put_ip, 'port|p=i' => \$port, 'timeout|t=i' => \$timeout, 'seen=s' => \$seen, 'fileprefix|fp=s' => \$fileprefix, 'filesuffix|fs=s' => \$filesuffix, 'hostreduce|hr' => \$hostreduce, 'all|a' => \$all_links, 'links|l=i' => \$links_count, 'rsl=i' => \$raw_size_limit, 'csl=i' => \$clean_size_limit, 'source|s=s' => \$source, 'sleep=f' => \$sleep)
+	or ! GetOptions ('help|h' => \$help, 'putip|ip=s' => \$put_ip, 'port|p=i' => \$port, 'timeout|t=i' => \$timeout, 'seen=s' => \$seen, 'fileprefix|fp=s' => \$fileprefix, 'filesuffix|fs=s' => \$filesuffix, 'hostreduce|hr' => \$hostreduce, 'all|a' => \$all_links, 'links|l=i' => \$links_count, 'rsl=i' => \$raw_size_limit, 'csl=i' => \$clean_size_limit, 'markers|m' => \$markers, 'source|s=s' => \$source, 'sleep=f' => \$sleep)
 	or defined $help
 	or (defined $all_links && defined $links_count)
 );
@@ -86,6 +90,7 @@ sub usage {
 	print "EITHER --all OR a given number of links\n";
 	print "hostreduce : keep only the hostname & evt. a random full URL for each hostname\n";
 	print "raw and clean size limits : text length before and after HTML stripping (default: 1000 and 500)\n";
+	print "markers : expects two directories, 'discourse-markers' and 'temporal-markers' with files following the languages codes\n";
 	print "source : indicate the source (printed as is as a column of the output file)\n";
 	print "sleep : time between two requests (can be a floating point value)\n\n";
 	exit;
@@ -113,15 +118,69 @@ if (!defined $clean_size_limit) {
 my $alarm_timeout = 20 + $timeout;
 
 ## Agent here
-my $agent = "FLUX-Toolchain/0.5";
+my $agent = "";
 
 ## MD5 digest length
 my $md5length = 12;	# enough below at least 200 millions of URLs
 
+## Markers
+my %discourse_markers;
+my %temporal_markers;
+my @lcodes = ('da', 'de', 'en', 'es', 'fi', 'fr', 'hu', 'id', 'it', 'nl', 'no', 'pl', 'pt', 'sv', 'tr');
+
+sub open_load_discourse {
+	my (@list, %hash);
+	my $lcode = shift;
+	my $filename = "discourse-markers/" . $lcode;
+	open (my $fh, "<", $filename) or die "Cannot open markers file : $!\n";
+	while (<$fh>) {
+		chomp;
+		{ no warnings 'uninitialized';
+			if (length($_) > 1) {
+				push (@list, $_);
+			}
+		}
+	}
+	close($fh);
+	@list = grep { ! $hash{ $_ }++ } @list;
+	
+	return (@list);
+}
+
+sub open_load_temporal {
+	my (@list, %hash);
+	my $lcode = shift;
+
+	my $filename = "temporal-markers/" . $lcode;
+	open (my $fh, "<", $filename) or die "Cannot open markers file : $!\n";
+	while (<$fh>) {
+		chomp;
+		{ no warnings 'uninitialized';
+			if (length($_) > 1) {
+				push (@list, $_);
+			}
+		}
+	}
+	close($fh);
+	@list = grep { ! $hash{ $_ }++ } @list;
+	
+	return (@list);
+}
+
+if (defined $markers) {
+	foreach my $lc (@lcodes) {
+		$discourse_markers{$lc} = [ open_load_discourse($lc) ];
+		#print $lc . " " . scalar(@{ $discourse_markers{$lc} }) . "\n";
+		$temporal_markers{$lc} = [ open_load_temporal($lc) ];
+		#print $lc . " " . scalar(@{ $temporal_markers{$lc} }) . "\n";
+	}
+}
 
 ## Most global variables here
 my (@urls, %seen, %hostnames, %seen_hostnames, $clean_text, $confidence, $lang, $suspicious, $join, $scheme, $auth, $path, $query, $frag, $furl, $lwp_ua, $body, $final_red, $length_a, $length_b, $wordcount);
 my ($ext_uri, $red_uri, $digest, $last_url, $last_red_uri, $last_digest);
+my $inner_loop_time = 0;
+
 
 ## Files
 ### bound to change by command-line option
@@ -143,7 +202,7 @@ if (defined $fileprefix) {
 	$todo = $fileprefix . "_" . $todo;
 	$done = $fileprefix . "_" . $done; # may change
 	$tocheck = $fileprefix . "_" . $tocheck;
-	#$urlseenfile = $fileprefix . "_" . $urlseenfile;
+	$urlseenfile = $fileprefix . "_" . $urlseenfile;
 	$urlseen_bufferfile = $fileprefix . "_" . $urlseen_bufferfile;
 	$urldictfile = $fileprefix . "_" . $urldictfile;
 	$urlcouplesfile = $fileprefix . "_" . $urlcouplesfile;
@@ -153,7 +212,7 @@ if (defined $filesuffix) {
 	$todo = $todo . "." . $filesuffix;
 	$done = $done . "." . $filesuffix; # may change
 	$tocheck = $tocheck . "." . $filesuffix;
-	#$urlseenfile = $urlseenfile . "." . $filesuffix;
+	$urlseenfile = $urlseenfile . "." . $filesuffix;
 	$urlseen_bufferfile = $urlseen_bufferfile . "." . $filesuffix;
 	$urldictfile = $urldictfile . "." . $filesuffix;
 	$urlcouplesfile = $urlcouplesfile . "." . $filesuffix;
@@ -185,6 +244,9 @@ if ((defined $seen) && (-e $seen)) {
 if (-e $todo) {
 	open (my $ltodo, '<', $todo) or die "Cannot open LINKS-TODO file : $!\n";
 	my ($last_red_uri, @tempurls);
+        # print digests on the go
+        open (my $urlbuffer, ">>", $urlseen_bufferfile) or die "Cannot open URL-SEEN-BUFFER file : $!\n";
+        # loop (file lines)
 	while (<$ltodo>) {
 		chomp;
 		unless ($_ =~ m/^http/) {
@@ -242,6 +304,7 @@ if (-e $todo) {
 						my $chosen_url = $tempurls[$rand];
 						push (@urls, $chosen_url);
 						$hostnames{$last_digest} = $last_red_uri;
+                                                print $urlbuffer "$last_digest\n";
 							# may not be necessary : the reduced url is the filter
 							# my $chosen_digest = substr(md5_base64($chosen_url), 0, $md5length)
 							# $hostnames{$chosen_digest}++;
@@ -250,6 +313,7 @@ if (-e $todo) {
 					else {
 						push (@urls, $last_url);
 						$hostnames{$last_digest} = $last_red_uri;
+                                                print $urlbuffer "$last_digest\n";
 					}
 				}
 			}
@@ -263,6 +327,7 @@ if (-e $todo) {
 			unless (exists $seen_hostnames{$digest}) {
 				push (@urls, $ext_uri);
 				$hostnames{$digest} = ();
+                                print $urlbuffer "$digest\n";
 			}
 		}
 	}
@@ -288,26 +353,36 @@ if (-e $todo) {
 				unless (exists $seen_hostnames{$last_digest}) {
 					push (@urls, $last_url);
 					$hostnames{$last_digest} = $last_red_uri;
+                                        print $urlbuffer "$last_digest\n";
 				}
 				unless (exists $seen_hostnames{$digest}) {
 					push (@urls, $ext_uri);
 					$hostnames{$digest} = $red_uri;
+                                        print $urlbuffer "$digest\n";
 				}
 			}
 		}
 	}
 
+        print "todo file loaded\n";
+        close($urlbuffer);
 	close($ltodo);
 }
 else {
 	die 'No to-do list found under this file name: ' . $todo;
 }
 
+# empty list case
+die 'empty list' if (scalar(@urls) == 0);
+
 # clear the hashes
 %seen = ();
 @urls = grep { ! $seen{ $_ }++ } @urls;
 die 'not enough links in the list, try --all ?' if ((defined $links_count) && (scalar(@urls) < $links_count));
 
+
+
+## FURL init. with switch
 if ($furl_loaded == 1) {
 	$furl = Furl::HTTP->new(
         	agent   => $agent,
@@ -315,33 +390,7 @@ if ($furl_loaded == 1) {
 	);
 }
 
-my ($code, $put_response);
-sub put_request {
-	my $text = shift;
-	my ( $minor_version, $sub_code, $msg, $headers, $response );
-	if ($furl_loaded == 1) {
-		( $minor_version, $sub_code, $msg, $headers, $response ) = $furl->request(
-			method  => 'PUT',
-			host    => $put_ip,
-			port    => $port,
-			path_query => 'detect',
-			content	=> $text,
-		);
-	}
-	else {
-		my $sendreq = HTTP::Request->new('PUT', 'http://' . $put_ip . ':' . $port . '/detect', undef, $clean_text );
-		my $resp = $lwp_ua->request($sendreq);
-		if ($resp->is_success) {
-			$response = $resp->decoded_content(charset => 'none');
-			$sub_code = 200;
-		}
-		else {
-			$sub_code = 500;
-		}
-	}
-	return ( $sub_code, $response );
-}
-
+## LWP init.
 my ($req, $res);
 $lwp_ua = LWP::UserAgent->new; # another possibility : my $lwp_ua = LWPx::ParanoidAgent->new;
 my $can_accept = HTTP::Message::decodable;
@@ -357,19 +406,19 @@ open (my $out_fh, '>>', $done) or die "Cannot open RESULTS file : $!\n";
 open (my $check_again_fh, '>>', $tocheck) or die "Cannot open TO-CHECK file : $!\n";
 open (my $urldict, '>>', $urldictfile) or die "Cannot open URL-DICT file : $!\n";
 open (my $urlcouples, '>>', $urlcouplesfile) or die "Cannot open URL-COUPLES file : $!\n";
-open (my $urlbuffer, '>', $urlseen_bufferfile) or die "Cannot open URL-SEEN-BUFFER file : $!\n";
+open (my $seenfh, '>>', $urlseenfile) or die "Cannot open URL-SEEN file : $!\n"; # was buffer_file
 
 # print the hostnames hash in a temporary buffer to clear the values from memory
-while ( my ($j, $k) = each %hostnames ) {
-	{ no warnings 'uninitialized';
-		print $urlbuffer "$j\t$k\n";
-	}
-}
-while ( my ($j, $k) = each %hostnames ) {
-	{ no warnings 'uninitialized';
-		$hostnames{$k} = ();
-	}
-}
+#while ( my ($j, $k) = each %hostnames ) {
+#	{ no warnings 'uninitialized';
+#		print $urlbuffer "$j\t$k\n";
+#	}
+#}
+#while ( my ($j, $k) = each %hostnames ) {
+#	{ no warnings 'uninitialized';
+#		$hostnames{$k} = ();
+#	}
+#}
 
 
 ## MAIN  instructions
@@ -385,7 +434,9 @@ foreach my $loopvar (1 .. scalar(@urls)) {
 
 	# try to fetch and to send the page
         my $url = shift @urls;
+
 	process_url($url);
+        print $loopvar . "\t" . total_size(\@urls) . "\t" . total_size(\%seen_hostnames) . "\t" . total_size(\%hostnames) . "\t" . total_size(\%seen) . "\n";
 }
 
 
@@ -417,6 +468,7 @@ sub process_url {
 		else {
 			$_ =~ s/ at .+?\.$//;
 			lock_and_write($errout, $_, $errfile);
+                        # $errors++;
 		}
 	};
 	return;
@@ -435,6 +487,36 @@ sub lock_and_write {
 	print $fh $text . "\n" or die "Cannot write to " . $filetype . " file : $!\n";
 	flock($fh, LOCK_UN) or die "Cannot unlock " . $filetype . " file : $!\n";
 	return;
+}
+
+
+## PUT request subroutine
+my ($code, $put_response);
+sub put_request {
+	my $text = shift;
+	my ( $minor_version, $sub_code, $msg, $headers, $response );
+	if ($furl_loaded == 1) {
+		( $minor_version, $sub_code, $msg, $headers, $response ) = $furl->request(
+			method  => 'PUT',
+			host    => $put_ip,
+			port    => $port,
+			path_query => 'detect',
+			content	=> $text,
+		);
+	}
+	else {
+		my $sendreq = HTTP::Request->new('PUT', 'http://' . $put_ip . ':' . $port . '/detect', undef, $clean_text );
+		my $resp = $lwp_ua->request($sendreq);
+
+		if ($resp->is_success) {
+			$response = $resp->decoded_content(charset => 'none');
+			$sub_code = 200;
+		}
+		else {
+			$sub_code = 500;
+		}
+	}
+	return ( $sub_code, $response );
 }
 
 
@@ -467,7 +549,21 @@ sub fetch_url {
 
                 # SLEEP HERE
                 if (defined $sleep) {
-	            sleep($sleep);
+                    unless ($inner_loop_time == 0) {
+                        # measure elapsed time
+                        my $sleep_correction = time() - $inner_loop_time;
+                        print "sleep correction:\t" . $sleep_correction . "\n";
+
+                        # apply correction
+                        if ($sleep_correction < $sleep) {
+                            sleep($sleep - $sleep_correction);
+                        }
+                        $inner_loop_time = time();
+                    }
+                    else {
+                        $inner_loop_time = time();
+                        sleep($sleep);
+                    }
                 }
 
 		# check if the request was redirected to a URL that has already been seen
@@ -502,6 +598,7 @@ sub fetch_url {
 		}
 		# store hostname or full redirect according to the options
 		$seen_hostnames{$digest} = ();
+                print $seenfh $digest . "\n";
 
 		# big problem here
 		#else {
@@ -529,7 +626,9 @@ sub fetch_url {
 				die "Dropped (by html size):\t\t" . $finaluri;
 			}
 			my $h = new HTML::Clean(\$body);
-			$h->strip();
+
+			# $h->strip();
+                        $h->strip({whitespace => 0});
 			my $data = $h->data();
 
 			my $hs = HTML::Strip->new();
@@ -758,6 +857,7 @@ sub fetch_url {
 				if ($domain =~ m/[a-z]+\.[a-z]+\/?$/) {
 					$domain = $&;
 				}
+				# print $domain . "\t" . $domainmem . "\t" . $auth . "\n";
 				# store the links in two categories
 				if ($domainmem eq $domain) {
 					push (@inlinks, $testurl);
@@ -765,7 +865,7 @@ sub fetch_url {
 				else {
 					push (@outlinks, $testurl);
 				}
-			}}}}
+			}}}}#}
 		}
 		# uniq
 		%seen = ();
@@ -787,20 +887,68 @@ sub fetch_url {
 		## unicode flag, does not work before Perl 5.14 : my $nwords = () = $clean_text =~ /\w+ /giu;
 		# my $nwords = () = $clean_text =~ /\p{L}+ |\p{L}+\p{P}|\p{L}+$/gi;
 		my $nwords = () = $clean_text =~ /\b\p{L}+\b|\b\p{L}+\p{P}\b/gi;
-		## Unicode version (Perl 5.14 minimum)
 		my $nwords_u;
 		try {
-			$nwords_u = () = $clean_text =~ /\w+\b/giu;
+		    ## Unicode version (Perl 5.14 minimum): $nwords_u = () = $clean_text =~ /\w+\b/giu;
+			$nwords_u = () = $clean_text =~ /\w+\b/gi;
 		}
 		catch {
 			$nwords_u = "0";
 		}
 
+		# markers in the text
+		my ($discourse_score, $temporal_score, $testscore, $testu, $discourse);
+		if (defined $markers) {
+			$discourse = 0;
+			if (exists $discourse_markers{$lang}) {
+				foreach my $testword (@{ $discourse_markers{$lang} }) {
+					# regex matching
+					$discourse += () = $clean_text =~ /\b${testword}\b/gi;
+					# combined regex
+					#my $testcomb .= join("|", @{ $discourse_markers{$lang} });
+					#$testscore = () = $clean_text =~ /\b(${testcomb})\b/gi;
+					#$testcomb =~ s/ //g;
+					#$testu = () = $clean_text =~ /\b(${testcomb})\b/giu;
+				}
+				$discourse_score = sprintf "%.3f", (($discourse/$nwords)*100);
+			}
+			else {
+				$discourse_score = "0";
+			}
+
+			my $temporal = 0;
+			if (exists $temporal_markers{$lang}) {
+				foreach my $testword (@{ $temporal_markers{$lang} }) {
+					# regex matching
+					$temporal += () = $clean_text =~ /\b${testword}\b/gi;
+				}
+				$temporal_score = sprintf "%.3f", (($temporal/$nwords)*100);
+			}
+			else {
+				$temporal_score = "0";
+			}
+
+			# ratio ignoring multi-word expressions
+			#print (($discourse/$nwords)*100) . "\t" .  (($testscore/$nwords)*100) . "\t" . (($testu/$nwords)*100) . "\n";
+		}
+		else {
+			$discourse_score = "0";
+			$temporal_score = "0";
+		}
+
+
 		# text hash to ensure texts are unique
 		my $textdigest = substr(md5_base64($text), 0, $md5length);
 
+                # creative commons test
+                my $ccflag = "0";
+                if ($body =~ m/creativecommons.org\/licenses\//) {
+                    $ccflag = "1";
+                }
+
 		# output string
-		my $output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast . "\t" . $textdigest . "\t" . $nwords_u . "\t" . $source;
+		my $output_result = $final_digest . "\t" . $lang . "\t" . $confidence . "\t" . $length_a . "\t" . $length_b . "\t" . $nwords . "\t" . scalar(@inlinks) . "\t" . scalar(@outlinks) . "\t" . join(",", @addresses) . "\t" . $httplast . "\t" . $discourse_score . "\t" . $temporal_score . "\t" . $textdigest . "\t" . $nwords_u . "\t" . $source . "\t" . $ccflag;
+		# . "\t" . $discourse . "\t" . $testscore . "\t" . $testu
 
 		# counters and printers
 		if ($suspicious == 1) {
@@ -832,6 +980,11 @@ close($log);
 
 ## THE END
 
+# no server found option
+#unless ($skip == 1) {
+#	splice(@urls, 0, $url_count);
+#}
+
 # rest of the todo links (can be 0)
 open (my $ltodo, '>', $todo);
 print $ltodo join("\n", @urls);
@@ -839,22 +992,23 @@ close($ltodo);
 
 
 # print seen hostnames (corrected hostnames → seen_hostnames)
-while ( my ($j, $k) = each %seen_hostnames ) {
-	#print $seenfh "$j\t$k\n";
-	if (defined $k) {
-		print $urlbuffer "$j\t$k\n";
-	}
-}
-close ($urlbuffer);
+#while ( my ($j, $k) = each %seen_hostnames ) {
+#	#print $seenfh "$j\t$k\n";
+#	if (defined $k) {
+#		print $urlbuffer "$j\t$k\n";
+#	}
+#}
+# close ($urlbuffer);
 
 open (my $final_buffer, '<', $urlseen_bufferfile);
-open (my $seenfh, '>>', $urlseenfile);
 while (<$final_buffer>) {
-	chomp;
-	lock_and_write($seenfh, $_, $urlseenfile);
+    chomp;
+    # lock_and_write($seenfh, $_, $urlseenfile)
+    print $seenfh "$_\n";
 }
-close($seenfh);
+
 close ($final_buffer);
+close($seenfh);
 
 
 # Print infos

@@ -5,7 +5,7 @@ use warnings;
 
 ###	This script is part of the FLUX Toolchain project (https://github.com/adbar/flux-toolchain).
 ###	Copyright (C) Adrien Barbaresi, 2012.
-###	The Microblog-Explorer is freely available under the GNU GPL v3 license (http://www.gnu.org/licenses/gpl.html).
+###	The FLUX Toolchain is freely available under the GNU GPL v3 license (http://www.gnu.org/licenses/gpl.html).
 
 
 my (@temp, $url, $number, $lang, $confidence, $final);
