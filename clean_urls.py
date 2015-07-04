@@ -40,12 +40,14 @@ if options.inputfile is None or options.outputfile is None:
 
 # Main regexes : media filters
 # avoid getting trapped
-protocol = re.compile(r'^http')
+protocol = re.compile(r'^http', re.IGNORECASE)
+# obvious extensions
 extensions = re.compile(r'\.atom$|\.json$|\.css$|\.xml$|\.js$|\.jpg$|\.jpeg$|\.png$|\.gif$|\.tiff$|\.pdf$|\.ogg$|\.mp3$|\.m4a$|\.aac$|\.avi$|\.mp4$|\.mov$|\.webm$|\.flv$|\.ico$|\.pls$|\.zip$|\.tar$|\.gz$|\.iso$|\.swf$', re.IGNORECASE)
-notsuited = re.compile(r'^http://add?s?\.|^http://banner\.|doubleclick|tradedoubler\.com|livestream|live\.|videos?\.|feed$|rss$', re.IGNORECASE)
+# frequent media query schemes, just in case
 mediaquery = re.compile(r'\.jpg[&?]|\.jpeg[&?]|\.png[&?]|\.gif[&?]|\.pdf[&?]|\.ogg[&?]|\.mp3[&?]|\.avi[&?]|\.mp4[&?]', re.IGNORECASE)
 # avoid these websites
 hostnames_filter = re.compile(r'last\.fm|soundcloud\.com|youtube\.com|youtu\.be|vimeo\.com|instagr\.am|instagram\.com|imgur\.com|flickr\.com|google\.|twitter\.com|twitpic\.com|gravatar\.com|akamai\.net|amazon\.com|cloudfront\.com', re.IGNORECASE)
+notsuited = re.compile(r'^http://add?s?\.|^http://banner\.|doubleclick|tradedoubler\.com|livestream|live\.|videos?\.|feed$|rss$', re.IGNORECASE)
 
 
 # Open and load spam-list file, if there is one
@@ -122,17 +124,18 @@ for line in sourcefile:
         candidates.append(line)
 
     for candidate in candidates:
-        passing_test = 1
+        passing_test = True
         # regexes tests : a bit heavy...
         ## check HTTP and length
         if not protocol.search(candidate) or len(candidate) < 11:
-            passing_test = 0
+            passing_test = False
         else:
             ## http://docs.python.org/library/stdtypes.html#boolean-operations-and-or-not
+            # lower case
             candidate = candidate.lower()
             ## compiled filters
             if hostnames_filter.search(candidate) or extensions.search(candidate) or notsuited.search(candidate) or mediaquery.search(candidate):
-                passing_test = 0
+                passing_test = False
             else:
                 # https
                 candidate = candidate.replace('^https', 'http')
@@ -141,16 +144,16 @@ for line in sourcefile:
                     if 'spamset' in globals():
                         domain = urlparse(candidate).netloc
                         if domain in spamset:
-                            passing_test = 0
+                            passing_test = False
                 except ValueError:
-                    passing_test = 0
+                    passing_test = False
                 ## (basic) adult spam filter
                 if options.adultfilter is True:
                     #if re.search(r'[\./]sex|[\./-](adult|porno?|cash|xxx|fuck)', candidate) or re.search(r'(sex|adult|porno?|cams|cash|xxx|fuck)[\./-]', candidate) or re.search(r'gangbang|incest', candidate) or re.search(r'[\./-](ass|sex)[\./-]', candidate):
-                    if re.search(r'[\./_-](porno?|xxx)', line.lower()) or re.search(r'(cams|cash|porno?|sex|xxx)[\./_-]', line.lower()) or re.search(r'gangbang|incest', line.lower()) or re.search(r'[\./_-](adult|ass|sex)[\./_-]', line.lower()):
-                        passing_test = 0
+                    if re.search(r'[\./_-](porno?|xxx)', re.IGNORECASE) or re.search(r'(cams|cash|porno?|sex|xxx)[\./_-]', re.IGNORECASE) or re.search(r'gangbang|incest', re.IGNORECASE) or re.search(r'[\./_-](adult|ass|sex)[\./_-]', re.IGNORECASE):
+                        passing_test = False
         
-        if passing_test == 1:
+        if passing_test == True:
             nonspam.append(candidate)
         else:
             spamurls.append(candidate)

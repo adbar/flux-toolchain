@@ -50,7 +50,7 @@ Removes non-http protocols, images, PDFs, audio and video files, ad banners, fee
     python clean_urls.py -i INPUTFILE -o OUTPUTFILE
     python clean_urls.py -h				# for help
 
-Spam filtering using a list: to be documented.
+It is also possible to use a blacklist of URLs or domain names as input, such a list can be retrieved from [shallalist.de](http://www.shallalist.de) using the script named `shalla-blacklist.sh`. The script focuses on a particular subset of spam categories. For licensing issues please refer to the [original license conditions](http://www.shallalist.de/licence.html).
 
 
 ### Fetch the pages, clean them and send them as a PUT request to the server
@@ -111,7 +111,7 @@ The `wikt-markers.py` script allows for the extraction of discourse and temporal
 Publications
 ------------
 
-- Barbaresi, A. (2013). [Challenges in web corpus construction for low-resource languages in a post-BootCaT world.](https://hal.archives-ouvertes.fr/halshs-00919410v2/document) In Z. Vetulani & H. Uszkoreit (Eds.), *Proceedings of the 6th language & technology conference, less resourced languages special track* (pp. 69–73). Poznań.
+- Barbaresi, A. (2013). [Challenges in web corpus construction for low-resource languages in a post-BootCaT world.](https://hal.archives-ouvertes.fr/halshs-00919410v2/document) In Z. Vetulani & H. Uszkoreit (Eds.), *Proceedings of the 6th language & technology conference, less resourced languages special track* (pp. 69–73).
 - Barbaresi, A. (2013). [Crawling microblogging services to gather language-classified URLs.](https://hal.archives-ouvertes.fr/halshs-00840861v2/document) Workflow and case study. In *Proceedings of the 51th Annual Meeting of the ACL, Student Research Workshop* (pp. 9–15).
 - Barbaresi, A. (2014). [Finding Viable Seed URLs for Web Corpora: A Scouting Approach and Comparative Study of Available Sources.](https://hal.archives-ouvertes.fr/halshs-00986144/document) In R. Schäfer & F. Bildhauer (Eds.), *Proceedings of the 9th web as corpus workshop* (pp. 1–8).
 - Schäfer, R., Barbaresi, A., & Bildhauer, F. (2014). [Focused Web Corpus Crawling.](https://hal.archives-ouvertes.fr/hal-01095924/document) In F. Bildhauer & R. Schäfer (Eds.), *Proceedings of the 9th Web as Corpus workshop* (pp. 9–15).
